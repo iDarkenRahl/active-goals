@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenLocal()
+    maven {
+        url = 'https://repo.runelite.net'
+        content {
+            includeGroupByRegex("net\\.runelite.*")
+        }
+    }
+    mavenCentral()
+}
+
+def runeLiteVersion = 'latest.release'
+
+dependencies {
+    compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testImplementation 'org.mockito:mockito-core:5.15.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+group = 'com.activegoals'
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
+
+def pluginJar = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def sideloadDirectory = new File(System.getProperty('user.home'), '.runelite/sideloaded-plugins')
+
+def installRuneLitePlugin = tasks.register('installRuneLitePlugin') {
+    group = 'distribution'
+    description = 'Install the verified ActiveGoals JAR into the local RuneLite sideload directory'
+    dependsOn tasks.named('assemble'), tasks.named('check')
+    inputs.file(pluginJar)
+    outputs.file(pluginJar.map { new File(sideloadDirectory, it.asFile.name) })
+
+    doLast {
+        def source = pluginJar.get().asFile
+        def destination = new File(sideloadDirectory, source.name)
+        java.nio.file.Files.createDirectories(sideloadDirectory.toPath())
+        try {
+            java.nio.file.Files.copy(source.toPath(), destination.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } catch (java.nio.file.FileSystemException ex) {
+            throw new GradleException(
+                "Could not replace ${destination}. Close any RuneLite client using the JAR and retry.", ex)
+        }
+        logger.lifecycle("Installed ActiveGoals to ${destination}")
+    }
+}
+
+tasks.register('run', JavaExec) {
+    group = 'application'
+    description = 'Launch RuneLite in developer mode with the installed ActiveGoals JAR'
+    dependsOn installRuneLitePlugin
+    classpath = configurations.testRuntimeClasspath
+    mainClass = 'net.runelite.client.RuneLite'
+    jvmArgs '-ea'
+    args '--developer-mode', '--debug'
+}
+
+// Discover and run actual JUnit 5 tests, rather than suppressing missing tests.
+tasks.named('test', Test) {
+    useJUnitPlatform()
+}

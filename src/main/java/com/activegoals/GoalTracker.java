@@ -1,0 +1,188 @@
+package com.activegoals;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.Set;
+import net.runelite.api.Skill;
+
+/** In-memory tracking for distinct goals, including identical targets. */
+final class GoalTracker
+{
+    private final List<Goal> goals = new ArrayList<>();
+
+    Goal add(Skill skill, int startXp, long targetXp, long now)
+    {
+        if (skill == null || skill == Skill.OVERALL || startXp < 0 || targetXp <= startXp
+            || targetXp > 200_000_000L)
+            throw new IllegalArgumentException("Invalid goal");
+        Goal goal = new Goal(UUID.randomUUID().toString(), skill, startXp, targetXp, 0);
+        goal.expandedAtNanos = now;
+        goals.add(0, goal);
+        return goal;
+    }
+
+    List<Goal> goals()
+    {
+        return Collections.unmodifiableList(goals);
+    }
+
+    void clear()
+    {
+        goals.clear();
+    }
+
+    String encode()
+    {
+        StringBuilder data = new StringBuilder();
+        for (Goal goal : goals)
+        {
+            if (data.length() > 0) data.append(';');
+            if (goal.skill == null)
+            {
+                data.append(goal.id).append(",!CORRUPTED");
+                continue;
+            }
+            data.append(goal.id).append(',').append(goal.skill.name()).append(',')
+                .append(goal.startXp).append(',').append(goal.targetXp).append(',')
+                .append(goal.targetLevel).append(',').append(goal.completed);
+        }
+        return data.toString();
+    }
+
+    static GoalTracker decode(String data)
+    {
+        GoalTracker tracker = new GoalTracker();
+        if (data == null || data.isEmpty()) return tracker;
+        Set<String> usedIds = new HashSet<>();
+        Set<String> reservedIds = new HashSet<>();
+        for (String record : data.split(";", -1))
+        {
+            String[] parts = record.split(",", -1);
+            if ((parts.length == 6 || (parts.length == 2 && "!CORRUPTED".equals(parts[1])))
+                && !parts[0].isEmpty()) reservedIds.add(parts[0]);
+        }
+        for (String record : data.split(";", -1))
+        {
+            String[] parts = record.split(",", -1);
+            if (parts.length == 2 && "!CORRUPTED".equals(parts[1]) && !parts[0].isEmpty())
+            {
+                String id = uniqueId(parts[0], usedIds, reservedIds);
+                tracker.restore(id, null, 0, 0, 0);
+                continue;
+            }
+            try
+            {
+                if (parts.length != 6) throw new IllegalArgumentException();
+                Skill skill = Skill.valueOf(parts[1]);
+                int start = Integer.parseInt(parts[2]);
+                long target = Long.parseLong(parts[3]);
+                int level = Integer.parseInt(parts[4]);
+                if (parts[0].isEmpty() || skill == Skill.OVERALL || start < 0
+                    || target < 1 || target > 200_000_000L || level < 0 || level > 126
+                    || (!"true".equals(parts[5]) && !"false".equals(parts[5])))
+                    throw new IllegalArgumentException();
+                Goal goal = tracker.restore(uniqueId(parts[0], usedIds, reservedIds), skill, start, target, level);
+                goal.completed = Boolean.parseBoolean(parts[5]);
+            }
+            catch (IllegalArgumentException ignored)
+            {
+                tracker.restore(uniqueId(null, usedIds, reservedIds), null, 0, 0, 0);
+            }
+        }
+        return tracker;
+    }
+
+    private static String uniqueId(String preferred, Set<String> used, Set<String> reserved)
+    {
+        if (preferred != null && used.add(preferred)) return preferred;
+        String id;
+        do { id = UUID.randomUUID().toString(); }
+        while (used.contains(id) || reserved.contains(id));
+        used.add(id);
+        return id;
+    }
+
+    void remove(String id)
+    {
+        goals.removeIf(goal -> goal.id.equals(id));
+    }
+
+    void gain(Skill skill, int currentXp, int gain, long now)
+    {
+        if (gain <= 0) return;
+        for (Goal goal : goals)
+            if (goal.skill == skill && !goal.completed)
+            {
+                goal.sessionXp += gain;
+                goal.rateXp += gain;
+                if (goal.ratePeriodStartNanos == 0) goal.ratePeriodStartNanos = now;
+                goal.expandedAtNanos = now;
+                goal.samples.addLast(gain);
+                if (goal.samples.size() > 20) goal.samples.removeFirst();
+                if (currentXp >= goal.targetXp)
+                {
+                    goal.completed = true;
+                    goal.completedAtNanos = now;
+                }
+            }
+    }
+
+    Goal restore(String id, Skill skill, int startXp, long targetXp, int targetLevel)
+    {
+        Goal goal = new Goal(id, skill, startXp, targetXp, targetLevel);
+        goals.add(goal);
+        return goal;
+    }
+
+    static final class Goal
+    {
+        final String id;
+        final Skill skill;
+        final int startXp;
+        long targetXp;
+        int targetLevel;
+        long sessionXp;
+        long rateXp;
+        long ratePeriodStartNanos;
+        long expandedAtNanos;
+        long completedAtNanos;
+        boolean completed;
+        final Deque<Integer> samples = new ArrayDeque<>();
+
+        void expireExpansion(long now, int seconds)
+        {
+            if (!completed && expandedAtNanos != 0
+                && !ActiveGoalsPlugin.isWithinGoalCardExpansionWindow(expandedAtNanos, now, seconds))
+            {
+                expandedAtNanos = 0;
+                ratePeriodStartNanos = 0;
+                rateXp = 0;
+                samples.clear();
+            }
+        }
+
+        private Goal(String id, Skill skill, int startXp, long targetXp, int targetLevel)
+        {
+            this.id = id;
+            this.skill = skill;
+            this.startXp = startXp;
+            this.targetXp = targetXp;
+            this.targetLevel = targetLevel;
+        }
+
+        String id() { return id; }
+        long sessionXp() { return sessionXp; }
+        int startingLevel() { return ActiveGoalsPlugin.virtualLevelForXp(startXp); }
+        double progress(int xp)
+        {
+            if (xp >= targetXp) return 1.0;
+            if (targetXp <= startXp) return 0.0;
+            return Math.max(0, Math.min(1, (xp - startXp) / (double) (targetXp - startXp)));
+        }
+    }
+}

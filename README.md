@@ -26,4 +26,3 @@ Use the Active Goals settings in RuneLite's plugin configuration to change the a
 XP per hour and time remaining are estimates based on recent training. **Actions Left** uses recent XP changes as samples, so it may differ from the actual number of actions remaining. Automatic collapse resets these rate and action estimates; goal session XP is preserved. Goal statistics reset when the plugin or RuneLite restarts.
 
 If a saved goal cannot be loaded, a **Corrupted Save** card appears in its place. Use its trash button to remove it.
-
