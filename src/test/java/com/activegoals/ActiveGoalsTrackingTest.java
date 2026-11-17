@@ -15,6 +15,108 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void savedManualCollapseRestoresAndExpansionEditAndDeletionClearIt() throws Exception
+    {
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+
+        ActiveGoalsPlugin first = new ActiveGoalsPlugin();
+        inject(first, "client", client);
+        inject(first, "configManager", config);
+        inject(first, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(first, "xpBaselineTicks", 1);
+        first.onGameTick(new GameTick());
+        first.addIndividualGoal(Skill.MINING, 0, 2000);
+        String id = first.individualGoals().get(0).id;
+        first.setIndividualGoalCollapsed(id, true);
+        assertEquals(id, saved.get("manuallyCollapsedGoals"));
+
+        ActiveGoalsPlugin restarted = new ActiveGoalsPlugin();
+        inject(restarted, "client", client);
+        inject(restarted, "configManager", config);
+        inject(restarted, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(restarted, "xpBaselineTicks", 1);
+        restarted.onGameTick(new GameTick());
+        GoalTracker.Goal goal = restarted.individualGoals().get(0);
+        assertTrue(goal.manuallyCollapsed);
+        restarted.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+        assertEquals(0, goal.expandedAtNanos);
+        assertEquals(100, goal.sessionXp);
+        restarted.setIndividualGoalCollapsed(id, false);
+        assertFalse(goal.manuallyCollapsed);
+        assertNotEquals(0, goal.expandedAtNanos);
+        assertEquals("", saved.get("manuallyCollapsedGoals"));
+
+        restarted.setIndividualGoalCollapsed(id, true);
+        restarted.editIndividualGoal(id, 0, 3000);
+        assertFalse(goal.manuallyCollapsed);
+        assertNotEquals(0, goal.expandedAtNanos);
+        assertEquals("", saved.get("manuallyCollapsedGoals"));
+        restarted.setIndividualGoalCollapsed(id, true);
+        restarted.removeIndividualGoal(id);
+        assertEquals("", saved.get("manuallyCollapsedGoals"));
+    }
+
+    @Test
+    void loginCompletionClearsSavedManualCollapse() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        when(config.getRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "individualGoals"))
+            .thenReturn("id,MINING,1000,1200,0,false");
+        when(config.getRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "manuallyCollapsedGoals"))
+            .thenReturn("id");
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1200);
+        plugin.onGameTick(new GameTick());
+        GoalTracker.Goal goal = plugin.individualGoals().get(0);
+        assertTrue(goal.completed);
+        assertFalse(goal.manuallyCollapsed);
+        assertNotEquals(0, goal.expandedAtNanos);
+        verify(config).setRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "manuallyCollapsedGoals", "");
+    }
+
+    @Test
+    void xpCompletionClearsSavedManualCollapse() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        when(config.getRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "individualGoals"))
+            .thenReturn("id,MINING,1000,1200,0,false");
+        when(config.getRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "manuallyCollapsedGoals"))
+            .thenReturn("id");
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        plugin.onGameTick(new GameTick());
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1200, 9, 9));
+        GoalTracker.Goal goal = plugin.individualGoals().get(0);
+        assertTrue(goal.completed);
+        assertFalse(goal.manuallyCollapsed);
+        assertNotEquals(0, goal.expandedAtNanos);
+        verify(config).setRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "manuallyCollapsedGoals", "");
+    }
+
+    @Test
     void eachCharacterRestoresOnlyTheirOwnGoals() throws Exception
     {
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();

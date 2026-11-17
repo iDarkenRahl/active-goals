@@ -129,11 +129,30 @@ public class ActiveGoalsPlugin extends Plugin
         configManager.setRSProfileConfiguration(CONFIG_GROUP, "individualGoals", individualGoals.encode());
     }
 
+    private void saveManualCollapses()
+    {
+        configManager.setRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals", individualGoals.encodeManualCollapses());
+    }
+
+    void setIndividualGoalCollapsed(String id, boolean collapsed)
+    {
+        if (!goalDataReady() || !Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())) return;
+        for (GoalTracker.Goal goal : individualGoals.goals())
+        {
+            if (!goal.id.equals(id) || goal.skill == null) continue;
+            goal.manuallyCollapsed = collapsed && !goal.completed;
+            goal.expandedAtNanos = collapsed ? 0 : System.nanoTime();
+            saveManualCollapses();
+            return;
+        }
+    }
+
     void removeIndividualGoal(String id)
     {
         if (!goalDataReady() || !Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())) return;
         individualGoals.remove(id);
         saveIndividualGoals();
+        saveManualCollapses();
     }
 
     void editIndividualGoal(String id, int targetLevel, long targetXp)
@@ -152,8 +171,11 @@ public class ActiveGoalsPlugin extends Plugin
                 throw new IllegalArgumentException("Target must be above current Xp.");
             goal.targetXp = targetXp;
             goal.targetLevel = targetLevel;
+            boolean wasManuallyCollapsed = goal.manuallyCollapsed;
+            goal.manuallyCollapsed = false;
             goal.expandedAtNanos = System.nanoTime();
             saveIndividualGoals();
+            if (wasManuallyCollapsed) saveManualCollapses();
             return;
         }
         throw new IllegalStateException("This goal is no longer available.");
@@ -334,8 +356,14 @@ public class ActiveGoalsPlugin extends Plugin
             GoalTracker cached = sessionGoals.get(configManager.getRSProfileKey());
             individualGoals = cached != null ? cached : GoalTracker.decode(saved);
             if (cached == null)
+            {
                 for (GoalTracker.Goal goal : new ArrayList<>(individualGoals.goals()))
                     if (goal.completed) individualGoals.remove(goal.id);
+                String collapsed = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
+                individualGoals.restoreManualCollapses(collapsed);
+                if (collapsed != null && !collapsed.equals(individualGoals.encodeManualCollapses()))
+                    saveManualCollapses();
+            }
             individualGoalsLoaded = true;
             loadedRSProfileKey = configManager.getRSProfileKey();
             saveIndividualGoals();
@@ -361,9 +389,12 @@ public class ActiveGoalsPlugin extends Plugin
             if (!goal.completed && xp >= goal.targetXp)
             {
                 goal.completed = true;
+                boolean wasManuallyCollapsed = goal.manuallyCollapsed;
+                goal.manuallyCollapsed = false;
                 goal.completedAtNanos = System.nanoTime();
                 goal.expandedAtNanos = goal.completedAtNanos;
                 changed = true;
+                if (wasManuallyCollapsed) saveManualCollapses();
             }
         }
         if (changed) saveIndividualGoals();
@@ -425,8 +456,9 @@ public class ActiveGoalsPlugin extends Plugin
             if (hasIndividualGoal)
             {
                 expireGoalExpansions(now);
-                individualGoals.gain(skill, xp, gain, now);
+                boolean collapseChanged = individualGoals.gain(skill, xp, gain, now);
                 saveIndividualGoals();
+                if (collapseChanged) saveManualCollapses();
             }
             if (getTargetXp(skill) > 0 || hasIndividualGoal)
             {
