@@ -77,6 +77,41 @@ class GoalOrderingTest
         tracker.recordTrainingGain(Skill.MINING, 4, 5);
         assertEquals(next, tracker.goals().get(0));
     }
+    @Test
+    void manuallyCollapsedCardMovesWithoutOpeningAndSurvivesReload()
+    {
+        GoalTracker tracker = GoalTracker.decode("other,FISHING,0,1000,0,false;mine,MINING,0,1000,0,false");
+        tracker.restoreManualCollapses("mine");
+        assertFalse(tracker.gain(Skill.MINING, 100, 100, 1));
+        tracker.recordTrainingGain(Skill.MINING, 1, 5);
+        assertEquals("mine;other", ids(tracker));
+        GoalTracker.Goal mining = tracker.goals().get(0);
+        assertTrue(mining.manuallyCollapsed);
+        assertEquals(0, mining.expandedAtNanos);
+        GoalTracker restored = GoalTracker.decode(tracker.encode());
+        restored.restoreManualCollapses(tracker.encodeManualCollapses());
+        assertEquals("mine;other", ids(restored));
+        assertTrue(restored.goals().get(0).manuallyCollapsed);
+    }
+
+    @Test
+    void completedCollapsedGoalOpensWhileRemainingGoalMovesAndPersists()
+    {
+        GoalTracker tracker = GoalTracker.decode("other,FISHING,0,1000,0,false;"
+            + "short,MINING,0,100,0,false;long,MINING,0,1000,0,false");
+        tracker.restoreManualCollapses("short;long");
+        assertTrue(tracker.gain(Skill.MINING, 100, 100, 1));
+        tracker.recordTrainingGain(Skill.MINING, 1, 5);
+        assertEquals("long;other;short", ids(tracker));
+        assertEquals("long", tracker.encodeManualCollapses());
+        assertTrue(tracker.goals().get(2).completed);
+        assertFalse(tracker.goals().get(2).manuallyCollapsed);
+        assertEquals(1, tracker.goals().get(2).expandedAtNanos);
+        GoalTracker restored = GoalTracker.decode(tracker.encode());
+        restored.restoreManualCollapses(tracker.encodeManualCollapses());
+        assertEquals("long;other;short", ids(restored));
+        assertTrue(restored.goals().get(0).manuallyCollapsed);
+    }
     private static String ids(GoalTracker tracker)
     {
         StringBuilder result = new StringBuilder();

@@ -302,11 +302,7 @@ public class ActiveGoalsPanel extends PluginPanel
         collapse.setMargin(new Insets(0, 4, 0, 4));
         collapse.setEnabled(!confirming);
         collapse.addActionListener(e -> applyPanelChange(() ->
-        {
-            for (GoalTracker.Goal record : plugin.individualGoals())
-                if (record.id.equals(goal.id))
-                    record.expandedAtNanos = goal.collapsed ? System.nanoTime() : 0;
-        }));
+            plugin.setIndividualGoalCollapsed(goal.id, !goal.collapsed)));
         keepWhilePressed(collapse);
         controls.add(collapse);
         header.add(controls, BorderLayout.EAST);
