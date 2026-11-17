@@ -60,6 +60,20 @@ class ActiveGoalsGoalCardExpansionTest
     }
 
     @Test
+    void orderingWindowUsesItsOwnSettingAndClampsInvalidValues() throws Exception
+    {
+        ConfigManager config = mock(ConfigManager.class);
+        ActiveGoalsPlugin plugin = pluginWithConfig(config);
+        when(config.getConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "goalCardExpansionSeconds")).thenReturn("30");
+        assertEquals(300, plugin.getGoalOrderingActivitySeconds());
+        when(config.getConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "goalOrderingActivitySeconds")).thenReturn("45", "0", "999999");
+        assertEquals(45, plugin.getGoalOrderingActivitySeconds());
+        assertEquals(1, plugin.getGoalOrderingActivitySeconds());
+        assertEquals(86400, plugin.getGoalOrderingActivitySeconds());
+        assertEquals(30, plugin.getGoalCardExpansionSeconds());
+    }
+
+    @Test
     void settingAnXpTargetStartsTheNewGoalGracePeriod()
         throws Exception
     {

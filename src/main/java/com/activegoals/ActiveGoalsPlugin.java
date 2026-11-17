@@ -229,6 +229,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (state == GameState.HOPPING || state == GameState.LOGIN_SCREEN) pauseIndividualGoals();
         if (state == GameState.LOGIN_SCREEN)
         {
+            individualGoals.clearTrainingActivity();
             individualGoals = new GoalTracker();
             individualGoalsLoaded = false;
             loadedRSProfileKey = null;
@@ -257,6 +258,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (key != null && loadedRSProfileKey != null && !key.equals(loadedRSProfileKey))
         {
             pauseIndividualGoals();
+            individualGoals.clearTrainingActivity();
             individualGoals = new GoalTracker();
             individualGoalsLoaded = false;
             loadedRSProfileKey = null;
@@ -316,6 +318,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (trackedAccountHash != null && trackedAccountHash != accountHash)
         {
             pauseIndividualGoals();
+            individualGoals.clearTrainingActivity();
             individualGoals = new GoalTracker();
             clearGoalCardXpStats();
             clearSessionOverviewXp();
@@ -426,6 +429,7 @@ public class ActiveGoalsPlugin extends Plugin
             {
                 expireGoalExpansions(now);
                 individualGoals.gain(skill, xp, gain, now);
+                individualGoals.recordTrainingGain(skill, now, getGoalOrderingActivitySeconds());
                 saveIndividualGoals();
             }
             if (getTargetXp(skill) > 0 || hasIndividualGoal)
@@ -469,6 +473,12 @@ public class ActiveGoalsPlugin extends Plugin
         int seconds = getIntSetting("goalCardExpansionSeconds", DEFAULT_GOAL_CARD_EXPANSION_SECONDS);
         return Math.max(MIN_GOAL_CARD_EXPANSION_SECONDS,
             Math.min(MAX_GOAL_CARD_EXPANSION_SECONDS, seconds));
+    }
+
+    int getGoalOrderingActivitySeconds()
+    {
+        int seconds = getIntSetting("goalOrderingActivitySeconds", 300);
+        return Math.max(1, Math.min(86_400, seconds));
     }
 
     void setGoalCardExpansionSeconds(int seconds)

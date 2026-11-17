@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 import net.runelite.api.Skill;
@@ -14,12 +16,15 @@ import net.runelite.api.Skill;
 final class GoalTracker
 {
     private final List<Goal> goals = new ArrayList<>();
+    private final Map<Skill, Long> lastTrainingXpNanos = new EnumMap<>(Skill.class);
 
     Goal add(Skill skill, int startXp, long targetXp, long now)
     {
         if (skill == null || skill == Skill.OVERALL || startXp < 0 || targetXp <= startXp
             || targetXp > 200_000_000L)
             throw new IllegalArgumentException("Invalid goal");
+        if (goals.stream().noneMatch(goal -> goal.skill == skill && !goal.completed))
+            lastTrainingXpNanos.remove(skill);
         Goal goal = new Goal(UUID.randomUUID().toString(), skill, startXp, targetXp, 0);
         goal.expandedAtNanos = now;
         goals.add(0, goal);
@@ -110,6 +115,25 @@ final class GoalTracker
     void remove(String id)
     {
         goals.removeIf(goal -> goal.id.equals(id));
+        lastTrainingXpNanos.keySet().removeIf(skill -> goals.stream()
+            .noneMatch(goal -> goal.skill == skill && !goal.completed));
+    }
+
+    void clearTrainingActivity()
+    {
+        lastTrainingXpNanos.clear();
+    }
+
+    void recordTrainingGain(Skill skill, long now, int delaySeconds)
+    {
+        if (goals.stream().noneMatch(goal -> goal.skill == skill && !goal.completed)) return;
+        Long previous = lastTrainingXpNanos.put(skill, now);
+        if (previous != null && now - previous < delaySeconds * 1_000_000_000L) return;
+        List<Goal> moved = new ArrayList<>();
+        for (Goal goal : goals)
+            if (goal.skill == skill && !goal.completed) moved.add(goal);
+        goals.removeAll(moved);
+        goals.addAll(0, moved);
     }
 
     void gain(Skill skill, int currentXp, int gain, long now)
@@ -130,6 +154,8 @@ final class GoalTracker
                     goal.completedAtNanos = now;
                 }
             }
+        if (goals.stream().noneMatch(goal -> goal.skill == skill && !goal.completed))
+            lastTrainingXpNanos.remove(skill);
     }
 
     Goal restore(String id, Skill skill, int startXp, long targetXp, int targetLevel)
