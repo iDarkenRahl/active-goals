@@ -9,6 +9,12 @@ import net.runelite.client.config.Range;
 @ConfigGroup(ActiveGoalsPlugin.CONFIG_GROUP)
 public interface ActiveGoalsConfig extends Config
 {
+    String VERSION = "1.0.1";
+
+    @ConfigSection(name = "Version " + VERSION, description = "Active Goals release version.",
+        position = -1, closedByDefault = true)
+    String VERSION_SECTION = "version";
+
     @ConfigSection(name = "Auto-collapse delay", description = "Time before an inactive goal collapses.",
         position = 0, closedByDefault = false)
     String COLLAPSE_SECTION = "collapse";
