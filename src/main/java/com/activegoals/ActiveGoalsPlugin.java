@@ -120,8 +120,10 @@ public class ActiveGoalsPlugin extends Plugin
         if (xp < 0 || targetXp <= xp || targetXp > 200_000_000L)
             throw new IllegalArgumentException("Target must be above current Xp.");
         GoalTracker.Goal goal = individualGoals.add(skill, xp, targetXp, System.nanoTime());
+        goal.createdAtEpochMillis = System.currentTimeMillis();
         goal.targetLevel = targetLevel;
         saveIndividualGoals();
+        saveCreationTimes();
     }
 
     void saveIndividualGoals()
@@ -132,6 +134,11 @@ public class ActiveGoalsPlugin extends Plugin
     private void saveManualCollapses()
     {
         configManager.setRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals", individualGoals.encodeManualCollapses());
+    }
+
+    private void saveCreationTimes()
+    {
+        configManager.setRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes", individualGoals.encodeCreationTimes());
     }
 
     void setIndividualGoalCollapsed(String id, boolean collapsed)
@@ -153,6 +160,7 @@ public class ActiveGoalsPlugin extends Plugin
         individualGoals.remove(id);
         saveIndividualGoals();
         saveManualCollapses();
+        saveCreationTimes();
     }
 
     void editIndividualGoal(String id, int targetLevel, long targetXp)
@@ -316,6 +324,7 @@ public class ActiveGoalsPlugin extends Plugin
             if (removed)
             {
                 saveIndividualGoals();
+                saveCreationTimes();
                 activeGoalsPanel.requestRefresh();
             }
             for (Skill skill : new ArrayList<>(completedAtNanos.keySet()))
@@ -360,8 +369,16 @@ public class ActiveGoalsPlugin extends Plugin
             individualGoals = cached != null ? cached : GoalTracker.decode(saved);
             if (cached == null)
             {
+                String creationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
+                individualGoals.restoreCreationTimes(creationTimes);
+                boolean removedCompleted = false;
                 for (GoalTracker.Goal goal : new ArrayList<>(individualGoals.goals()))
-                    if (goal.completed) individualGoals.remove(goal.id);
+                    if (goal.completed)
+                    {
+                        individualGoals.remove(goal.id);
+                        removedCompleted = true;
+                    }
+                if (removedCompleted) saveCreationTimes();
                 String collapsed = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
                 individualGoals.restoreManualCollapses(collapsed);
                 if (collapsed != null && !collapsed.equals(individualGoals.encodeManualCollapses()))
