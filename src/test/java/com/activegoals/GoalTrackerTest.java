@@ -7,6 +7,36 @@ import static org.junit.jupiter.api.Assertions.*;
 class GoalTrackerTest
 {
     @Test
+    void manualCollapseSurvivesRoundTripAndOnlyCompletionReopensIt()
+    {
+        GoalTracker tracker = new GoalTracker();
+        GoalTracker.Goal first = tracker.add(Skill.MINING, 1000, 1200, 1);
+        GoalTracker.Goal second = tracker.add(Skill.MINING, 1000, 2000, 1);
+        first.manuallyCollapsed = true;
+        first.expandedAtNanos = 0;
+        String goals = tracker.encode();
+        GoalTracker restored = GoalTracker.decode(goals);
+        restored.restoreManualCollapses(first.id + ";unknown;invalid");
+        GoalTracker.Goal restoredFirst = restored.goals().get(1);
+        GoalTracker.Goal restoredSecond = restored.goals().get(0);
+        assertEquals(goals, restored.encode());
+        assertEquals(first.id, restored.encodeManualCollapses());
+        assertFalse(restored.gain(Skill.MINING, 1100, 100, 2));
+        assertTrue(restoredFirst.manuallyCollapsed);
+        assertEquals(0, restoredFirst.expandedAtNanos);
+        assertEquals(100, restoredFirst.sessionXp);
+        assertEquals(100, restoredFirst.rateXp);
+        assertEquals(100, restoredFirst.samples.getFirst());
+        assertFalse(restoredSecond.manuallyCollapsed);
+        assertEquals(2, restoredSecond.expandedAtNanos);
+        assertTrue(restored.gain(Skill.MINING, 1200, 100, 3));
+        assertTrue(restoredFirst.completed);
+        assertFalse(restoredFirst.manuallyCollapsed);
+        assertEquals(3, restoredFirst.expandedAtNanos);
+        assertEquals("", restored.encodeManualCollapses());
+    }
+
+    @Test
     void autoCollapseResetsRateAndSamplesButPreservesSessionXp()
     {
         GoalTracker tracker = new GoalTracker();

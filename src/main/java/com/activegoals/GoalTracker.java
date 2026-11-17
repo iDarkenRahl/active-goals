@@ -54,6 +54,29 @@ final class GoalTracker
         return data.toString();
     }
 
+    String encodeManualCollapses()
+    {
+        StringBuilder data = new StringBuilder();
+        for (Goal goal : goals)
+        {
+            if (!goal.manuallyCollapsed || goal.skill == null || goal.completed) continue;
+            if (data.length() > 0) data.append(';');
+            data.append(goal.id);
+        }
+        return data.toString();
+    }
+
+    void restoreManualCollapses(String data)
+    {
+        Set<String> ids = new HashSet<>();
+        if (data != null && !data.isEmpty()) Collections.addAll(ids, data.split(";"));
+        for (Goal goal : goals)
+        {
+            goal.manuallyCollapsed = goal.skill != null && !goal.completed && ids.contains(goal.id);
+            if (goal.manuallyCollapsed) goal.expandedAtNanos = 0;
+        }
+    }
+
     static GoalTracker decode(String data)
     {
         GoalTracker tracker = new GoalTracker();
@@ -112,24 +135,29 @@ final class GoalTracker
         goals.removeIf(goal -> goal.id.equals(id));
     }
 
-    void gain(Skill skill, int currentXp, int gain, long now)
+    boolean gain(Skill skill, int currentXp, int gain, long now)
     {
-        if (gain <= 0) return;
+        if (gain <= 0) return false;
+        boolean collapseChanged = false;
         for (Goal goal : goals)
             if (goal.skill == skill && !goal.completed)
             {
                 goal.sessionXp += gain;
                 goal.rateXp += gain;
                 if (goal.ratePeriodStartNanos == 0) goal.ratePeriodStartNanos = now;
-                goal.expandedAtNanos = now;
+                if (!goal.manuallyCollapsed) goal.expandedAtNanos = now;
                 goal.samples.addLast(gain);
                 if (goal.samples.size() > 20) goal.samples.removeFirst();
                 if (currentXp >= goal.targetXp)
                 {
                     goal.completed = true;
                     goal.completedAtNanos = now;
+                    goal.expandedAtNanos = now;
+                    collapseChanged |= goal.manuallyCollapsed;
+                    goal.manuallyCollapsed = false;
                 }
             }
+        return collapseChanged;
     }
 
     Goal restore(String id, Skill skill, int startXp, long targetXp, int targetLevel)
@@ -152,6 +180,7 @@ final class GoalTracker
         long expandedAtNanos;
         long completedAtNanos;
         boolean completed;
+        boolean manuallyCollapsed;
         final Deque<Integer> samples = new ArrayDeque<>();
 
         void expireExpansion(long now, int seconds)
