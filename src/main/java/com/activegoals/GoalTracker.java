@@ -8,6 +8,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import net.runelite.api.Skill;
@@ -80,6 +81,41 @@ final class GoalTracker
             goal.manuallyCollapsed = goal.skill != null && !goal.completed && ids.contains(goal.id);
             if (goal.manuallyCollapsed) goal.expandedAtNanos = 0;
         }
+    }
+
+    String encodeCreationTimes()
+    {
+        StringBuilder data = new StringBuilder();
+        for (Goal goal : goals)
+        {
+            if (goal.skill == null || goal.createdAtEpochMillis == null) continue;
+            if (data.length() > 0) data.append(';');
+            data.append(goal.id).append(',').append(goal.createdAtEpochMillis);
+        }
+        return data.toString();
+    }
+
+    void restoreCreationTimes(String data)
+    {
+        Map<String, Long> times = new HashMap<>();
+        Set<String> duplicates = new HashSet<>();
+        if (data != null && !data.isEmpty())
+        {
+            for (String record : data.split(";", -1))
+            {
+                String[] parts = record.split(",", -1);
+                if (parts.length != 2 || parts[0].isEmpty()) continue;
+                try
+                {
+                    long time = Long.parseLong(parts[1]);
+                    if (times.putIfAbsent(parts[0], time) != null) duplicates.add(parts[0]);
+                }
+                catch (NumberFormatException ignored) { }
+            }
+        }
+        for (Goal goal : goals)
+            goal.createdAtEpochMillis = goal.skill == null || duplicates.contains(goal.id)
+                ? null : times.get(goal.id);
     }
 
     static GoalTracker decode(String data)
@@ -200,6 +236,7 @@ final class GoalTracker
         final int startXp;
         long targetXp;
         int targetLevel;
+        Long createdAtEpochMillis;
         long sessionXp;
         long rateXp;
         long ratePeriodStartNanos;

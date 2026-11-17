@@ -7,6 +7,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -30,6 +33,8 @@ public class ActiveGoalsPanel extends PluginPanel
     private static final Color GOLD = new Color(255, 214, 122);
     private static final Color TEXT = new Color(255, 255, 255);
     private static final Color MUTED = new Color(232, 225, 213);
+    private static final DateTimeFormatter CREATION_TIME_FORMAT =
+        DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a", Locale.ENGLISH);
     private final ActiveGoalsPlugin plugin;
     private final SkillIconManager icons;
     private final JPanel content = new ViewportWidthPanel();
@@ -151,7 +156,7 @@ public class ActiveGoalsPanel extends PluginPanel
                 if (record.skill == null)
                 {
                     goals.add(new GoalSnapshot(record.id, null, 0, 0, false, 0, 0, 0,
-                        0, 0, 0, 0, 0, false, false));
+                        0, 0, 0, 0, 0, false, false, null));
                     continue;
                 }
                 Skill skill = record.skill;
@@ -166,7 +171,7 @@ public class ActiveGoalsPanel extends PluginPanel
                 long rate = record.ratePeriodStartNanos == 0 ? 0 : Math.round(record.rateXp * 3600.0 / Math.max(60.0, (rateEnd - record.ratePeriodStartNanos) / 1e9));
                 long gained = record.sessionXp;
                 boolean collapsed = record.expandedAtNanos == 0 || !ActiveGoalsPlugin.isWithinGoalCardExpansionWindow(record.expandedAtNanos, now, plugin.getGoalCardExpansionSeconds());
-                goals.add(new GoalSnapshot(record.id, skill, target, targetXp, target == 0, xp, record.startXp, record.startingLevel(), remaining, progress, rate, gained, ActiveGoalsPlugin.estimateActionsLeft(remaining, record.samples), collapsed, record.completed));
+                goals.add(new GoalSnapshot(record.id, skill, target, targetXp, target == 0, xp, record.startXp, record.startingLevel(), remaining, progress, rate, gained, ActiveGoalsPlugin.estimateActionsLeft(remaining, record.samples), collapsed, record.completed, record.createdAtEpochMillis));
             }
             long sessionOverviewXp = plugin.getSessionOverviewTotalXp();
             long sessionSeconds = plugin.getSessionSeconds();
@@ -394,6 +399,8 @@ public class ActiveGoalsPanel extends PluginPanel
         divider.setForeground(new Color(81, 72, 58));
         divider.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
         card.add(fullWidth(divider));
+        card.add(Box.createVerticalStrut(5));
+        card.add(infoRow("Created:", formatCreationTime(goal.createdAtEpochMillis)));
         card.add(Box.createVerticalStrut(5));
         card.add(infoRow("Current Xp:", fmt(goal.currentXp)));
         card.add(Box.createVerticalStrut(5));
@@ -939,6 +946,11 @@ public class ActiveGoalsPanel extends PluginPanel
     }
 
     private static String fmt(long n) { return String.format(Locale.US, "%,d", n); }
+    private static String formatCreationTime(Long epochMillis)
+    {
+        return epochMillis == null ? "Unknown" : CREATION_TIME_FORMAT.format(
+            Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
+    }
     private static String duration(long sec)
     {
         long days = sec / 86400, hours = sec % 86400 / 3600, minutes = sec % 3600 / 60;
@@ -964,10 +976,12 @@ public class ActiveGoalsPanel extends PluginPanel
         final long actionsLeft;
         final boolean collapsed;
         final boolean completed;
+        final Long createdAtEpochMillis;
 
         GoalSnapshot(String id, Skill skill, int targetLevel, long targetXp, boolean hasCustomXpTarget,
              int currentXp, int startingXp, int startingLevel, long remainingXp, double progress,
-             long xpPerHour, long goalCardSessionXp, long actionsLeft, boolean collapsed, boolean completed)
+             long xpPerHour, long goalCardSessionXp, long actionsLeft, boolean collapsed, boolean completed,
+             Long createdAtEpochMillis)
         {
             this.id = id;
             this.skill = skill;
@@ -984,6 +998,7 @@ public class ActiveGoalsPanel extends PluginPanel
             this.actionsLeft = actionsLeft;
             this.collapsed = collapsed;
             this.completed = completed;
+            this.createdAtEpochMillis = createdAtEpochMillis;
         }
     }
 }
