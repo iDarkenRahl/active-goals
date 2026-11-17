@@ -2,12 +2,16 @@ package com.activegoals;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.MouseEvent;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.JToolTip;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextField;
 import net.runelite.api.Client;
@@ -19,6 +23,79 @@ import static org.mockito.Mockito.*;
 
 class ActiveGoalsFormLayoutTest
 {
+    @Test
+    void hoveredGoalTooltipRebindsToUpdatedBarOnRefresh() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        Client client = mock(Client.class);
+        GoalTracker tracker = new GoalTracker();
+        tracker.add(Skill.MINING, 100_000, 350_000, 0);
+        when(plugin.individualGoals()).thenReturn(tracker.goals());
+        when(plugin.getClient()).thenReturn(client);
+        when(plugin.goalDataReady()).thenReturn(true);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(150_000, 160_000);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        Field tooltipField = ActiveGoalsPanel.class.getDeclaredField("progressTooltip");
+        tooltipField.setAccessible(true);
+        JToolTip tooltip = (JToolTip) tooltipField.get(panel);
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> {
+                JProgressBar original = descendants(panel, JProgressBar.class).get(0);
+                original.dispatchEvent(new MouseEvent(original, MouseEvent.MOUSE_ENTERED,
+                    0, 0, 1, 1, 0, false));
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                JProgressBar updated = descendants(panel, JProgressBar.class).get(0);
+                assertSame(updated, tooltip.getComponent());
+                assertEquals("60,000 / 250,000 XP", tooltip.getTipText());
+            });
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
+    @Test
+    void progressTooltipUsesGoalXpAndTracksTargetAndCurrentXp() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        Client client = mock(Client.class);
+        GoalTracker tracker = new GoalTracker();
+        GoalTracker.Goal goal = tracker.add(Skill.MINING, 100_000, 350_000, 0);
+        when(plugin.individualGoals()).thenReturn(tracker.goals());
+        when(plugin.getClient()).thenReturn(client);
+        when(plugin.goalDataReady()).thenReturn(true);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(150_000, 90_000, 400_000);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("50,000 / 250,000 XP", descendants(panel, JProgressBar.class).get(0).getToolTipText());
+                goal.targetXp = 300_000;
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("0 / 200,000 XP", descendants(panel, JProgressBar.class).get(0).getToolTipText());
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> assertEquals("200,000 / 200,000 XP",
+                descendants(panel, JProgressBar.class).get(0).getToolTipText()));
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
     @Test
     void inlineRemovalSurvivesRefreshAndTargetsOnlyTheSelectedGoal() throws Exception
     {

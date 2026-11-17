@@ -2,6 +2,11 @@ package com.activegoals;
 
 import java.awt.*;
 import java.awt.event.ItemEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.HierarchyEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -29,6 +34,10 @@ public class ActiveGoalsPanel extends PluginPanel
     private final SkillIconManager icons;
     private final JPanel content = new ViewportWidthPanel();
     private final Timer refreshTimer;
+    private final Timer progressTooltipDelay;
+    private final JToolTip progressTooltip = new JToolTip();
+    private String hoveredProgressGoalId;
+    private JProgressBar hoveredProgressBar;
     private boolean running;
     // Keep a pressed button in place until the current click completes.
     private final Set<JButton> pressedButtons = new HashSet<>();
@@ -56,6 +65,7 @@ public class ActiveGoalsPanel extends PluginPanel
         scroll.getVerticalScrollBar().setUI(new ActiveGoalsScrollBarUI());
         scroll.getVerticalScrollBar().setPreferredSize(new Dimension(8, 0));
         scroll.getViewport().setBackground(BG);
+        scroll.getViewport().addChangeListener(e -> positionProgressTooltip());
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
@@ -68,6 +78,17 @@ public class ActiveGoalsPanel extends PluginPanel
         add(top, BorderLayout.NORTH);
         add(scroll, BorderLayout.CENTER);
         refreshTimer = new Timer(1500, e -> requestRefresh());
+        progressTooltipDelay = new Timer(ToolTipManager.sharedInstance().getInitialDelay(), e -> showProgressTooltip());
+        progressTooltipDelay.setRepeats(false);
+        addComponentListener(new ComponentAdapter()
+        {
+            @Override public void componentResized(ComponentEvent e) { positionProgressTooltip(); }
+        });
+        addHierarchyListener(e ->
+        {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !isShowing())
+                hideProgressTooltip();
+        });
     }
 
     private void showRemoveGoalConfirmation(GoalSnapshot goal)
@@ -95,6 +116,8 @@ public class ActiveGoalsPanel extends PluginPanel
         revealGoalId = null;
         confirmingRemovalId = null;
         refreshTimer.stop();
+        if (SwingUtilities.isEventDispatchThread()) hideProgressTooltip();
+        else SwingUtilities.invokeLater(this::hideProgressTooltip);
     }
 
     void clearGoalInteractionState()
@@ -174,6 +197,8 @@ public class ActiveGoalsPanel extends PluginPanel
 
     private void renderDashboard(List<GoalSnapshot> goals, long sessionOverviewXp, long seconds, boolean ready)
     {
+        // The hovered goal survives card reconstruction; its new bar is bound below.
+        hoveredProgressBar = null;
         if (confirmingRemovalId != null && goals.stream().noneMatch(goal -> goal.id.equals(confirmingRemovalId)))
             confirmingRemovalId = null;
         JPanel reveal = goalForm != null && goalForm.getParent() == null ? goalForm : null;
@@ -226,6 +251,11 @@ public class ActiveGoalsPanel extends PluginPanel
         content.add(Box.createVerticalStrut(12));
         content.revalidate();
         content.repaint();
+        SwingUtilities.invokeLater(() ->
+        {
+            if (hoveredProgressGoalId != null && hoveredProgressBar == null) hideProgressTooltip();
+            else positionProgressTooltip();
+        });
         if (reveal != null)
         {
             JPanel component = reveal;
@@ -347,7 +377,7 @@ public class ActiveGoalsPanel extends PluginPanel
             card.add(Box.createVerticalStrut(5));
             card.add(infoRow("Goal Progress:", String.format("%.1f%%", goal.progress * 100)));
             card.add(Box.createVerticalStrut(5));
-            card.add(goalProgressBar(goal.progress));
+            card.add(goalProgressBar(goal));
             Dimension preferred = card.getPreferredSize();
             card.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
             return card;
@@ -358,7 +388,7 @@ public class ActiveGoalsPanel extends PluginPanel
         card.add(Box.createVerticalStrut(4));
         card.add(infoRow("Goal Progress:", String.format("%.1f%%", goal.progress * 100)));
         card.add(Box.createVerticalStrut(5));
-        card.add(goalProgressBar(goal.progress));
+        card.add(goalProgressBar(goal));
         card.add(Box.createVerticalStrut(9));
         JSeparator divider = new JSeparator();
         divider.setForeground(new Color(81, 72, 58));
@@ -383,15 +413,92 @@ public class ActiveGoalsPanel extends PluginPanel
     }
 
     /** A compact, width-constrained statistics row. */
-    private JComponent goalProgressBar(double progress)
+    private JComponent goalProgressBar(GoalSnapshot goal)
     {
         JProgressBar bar = new JProgressBar(0, 1000);
-        bar.setValue((int) (progress * 1000));
+        bar.setValue((int) (goal.progress * 1000));
+        long total = Math.max(0, goal.targetXp - goal.startingXp);
+        long gained = Math.max(0, Math.min(total, (long) goal.currentXp - goal.startingXp));
+        bar.setToolTipText(fmt(gained) + " / " + fmt(total) + " XP");
+        // A persistent overlay is used instead of Swing's pointer-positioned popup.
+        ToolTipManager.sharedInstance().unregisterComponent(bar);
+        if (goal.id.equals(hoveredProgressGoalId))
+        {
+            hoveredProgressBar = bar;
+            progressTooltip.setComponent(bar);
+            progressTooltip.setTipText(bar.getToolTipText());
+        }
+        bar.addMouseListener(new MouseAdapter()
+        {
+            @Override public void mouseEntered(MouseEvent e)
+            {
+                if (!goal.id.equals(hoveredProgressGoalId))
+                {
+                    hideProgressTooltip();
+                    hoveredProgressGoalId = goal.id;
+                    hoveredProgressBar = bar;
+                    progressTooltipDelay.restart();
+                }
+            }
+
+            @Override public void mouseExited(MouseEvent e)
+            {
+                if (hoveredProgressBar == bar) hideProgressTooltip();
+            }
+        });
         bar.setForeground(new Color(230, 180, 79));
         bar.setBackground(new Color(23, 20, 15));
         bar.setPreferredSize(new Dimension(200, 10));
         bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 10));
         return fullWidth(bar);
+    }
+
+    private void showProgressTooltip()
+    {
+        if (!running || hoveredProgressBar == null || !hoveredProgressBar.isShowing()) return;
+        JRootPane root = SwingUtilities.getRootPane(hoveredProgressBar);
+        if (root == null) return;
+        progressTooltip.setComponent(hoveredProgressBar);
+        progressTooltip.setTipText(hoveredProgressBar.getToolTipText());
+        root.getLayeredPane().add(progressTooltip, JLayeredPane.POPUP_LAYER);
+        progressTooltip.setVisible(true);
+        positionProgressTooltip();
+    }
+
+    private void positionProgressTooltip()
+    {
+        if (hoveredProgressBar == null || !hoveredProgressBar.isShowing() || !progressTooltip.isVisible()
+            || !(progressTooltip.getParent() instanceof JLayeredPane)) return;
+        JLayeredPane layer = (JLayeredPane) progressTooltip.getParent();
+        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, hoveredProgressBar);
+        if (viewport == null || !viewport.getViewRect().intersects(
+            SwingUtilities.convertRectangle(hoveredProgressBar.getParent(), hoveredProgressBar.getBounds(), viewport.getView())))
+        {
+            hideProgressTooltip();
+            return;
+        }
+        Rectangle bar = SwingUtilities.convertRectangle(hoveredProgressBar.getParent(), hoveredProgressBar.getBounds(), layer);
+        Dimension tip = progressTooltip.getPreferredSize();
+        int x = Math.max(0, Math.min(layer.getWidth() - tip.width, bar.x + (bar.width - tip.width) / 2));
+        int y = bar.y + bar.height;
+        if (y + tip.height > layer.getHeight()) y = bar.y - tip.height;
+        y = Math.max(0, Math.min(layer.getHeight() - tip.height, y));
+        progressTooltip.setBounds(x, y, tip.width, tip.height);
+        progressTooltip.repaint();
+    }
+
+    private void hideProgressTooltip()
+    {
+        progressTooltipDelay.stop();
+        hoveredProgressGoalId = null;
+        hoveredProgressBar = null;
+        progressTooltip.setVisible(false);
+        Container parent = progressTooltip.getParent();
+        if (parent != null)
+        {
+            parent.remove(progressTooltip);
+            parent.repaint();
+        }
     }
 
     private JPanel infoRow(String key, String value)
