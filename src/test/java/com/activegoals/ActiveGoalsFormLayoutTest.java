@@ -10,6 +10,7 @@ import java.util.List;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JLabel;
 import javax.swing.JProgressBar;
 import javax.swing.JToolTip;
 import javax.swing.SwingUtilities;
@@ -23,6 +24,95 @@ import static org.mockito.Mockito.*;
 
 class ActiveGoalsFormLayoutTest
 {
+    @Test
+    void emptyStateTracksReadinessFormsAndGoalRecords() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        Client client = mock(Client.class);
+        GoalTracker tracker = new GoalTracker();
+        when(plugin.individualGoals()).thenReturn(tracker.goals());
+        when(plugin.getClient()).thenReturn(client);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1500);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(hasLabel(panel, "Log in to add goals."));
+                assertFalse(hasEmptyState(panel));
+                when(plugin.goalDataReady()).thenReturn(true);
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(hasEmptyState(panel));
+                button(panel, "Add Goal").doClick(0);
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(hasEmptyState(panel));
+                button(panel, "Cancel").doClick(0);
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(hasEmptyState(panel));
+                tracker.add(Skill.MINING, 1000, 2500, 0);
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(hasEmptyState(panel));
+                assertEquals(1, descendants(panel, JProgressBar.class).size());
+                tracker.goals().get(0).targetXp = 0;
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(hasEmptyState(panel));
+                assertTrue(descendants(panel, JProgressBar.class).isEmpty());
+                tracker.remove(tracker.goals().get(0).id);
+                panel.requestRefresh();
+            });
+            SwingUtilities.invokeAndWait(() -> assertTrue(hasEmptyState(panel)));
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
+    @Test
+    void corruptedSavePlaceholderIsNotAnEmptyState() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        GoalTracker tracker = GoalTracker.decode("unreadable");
+        assertEquals(1, tracker.goals().size());
+        when(plugin.individualGoals()).thenReturn(tracker.goals());
+        when(plugin.goalDataReady()).thenReturn(true);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(hasEmptyState(panel));
+                assertTrue(hasLabel(panel, "Corrupted Save"));
+            });
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
+    private static boolean hasEmptyState(Container panel)
+    {
+        return hasLabel(panel, "No goals yet. Select + to add one.");
+    }
+
+    private static boolean hasLabel(Container panel, String text)
+    {
+        return descendants(panel, JLabel.class).stream().anyMatch(label -> text.equals(label.getText()));
+    }
+
     @Test
     void hoveredGoalTooltipRebindsToUpdatedBarOnRefresh() throws Exception
     {
