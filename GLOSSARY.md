@@ -40,10 +40,13 @@ _Avoid_: Goal Progress in internal domain terminology; it is acceptable as a pla
 A goal whose target has been reached and which remains visible temporarily during normal gameplay before removal. It does not need to reappear after a plugin restart.
 
 **Session XP**:
-The total XP gains observed across skills since session tracking began for the current character and game-mode profile, counted once per gain even when multiple goals track the same skill. It resets on plugin restart, logout, or profile change.
+The total XP gains observed across skills during the current RuneLite client session for a character and game-mode profile, counted once per gain even when multiple goals track the same skill. It is retained across logout, profile changes, and plugin disablement, and resets when the client closes or restarts. XP gained while the plugin is disabled is excluded.
 
 **Goal Session XP**:
-The sum of observed positive XP changes for a goal's skill while that goal is incomplete, accumulated separately for the goal during the current plugin run and retained across relogs and character switches. The full gain that completes the goal is included, even when it exceeds the target.
+The sum of observed positive XP changes for a goal's skill while that goal is incomplete, accumulated separately for the goal during the current RuneLite client session. It is retained across logout, profile changes, and plugin disablement, and resets when the client closes or restarts. XP gained while the plugin is disabled is excluded. The full gain that completes the goal is included, even when it exceeds the target.
+
+**Session Time**:
+The accumulated time spent logged in on a character and game-mode profile during the current RuneLite client session while Active Goals is enabled. It pauses when the character is not logged in or the plugin is disabled and resets when the client closes or restarts.
 
 **Goal XP/hour**:
 The rate of XP gained toward a goal during its current rate-tracking period.
@@ -71,7 +74,7 @@ A goal card showing its compact header, goal endpoints, and progress bar without
 _Avoid_: Minimized goal
 
 **Manually Collapsed Goal Card**:
-A goal card the player has chosen to keep collapsed until they expand it or the goal is edited or completed.
+A goal card the player has chosen to keep collapsed until they expand it or the goal is edited or completed. It stays in its current position during training-based card reordering.
 
 **Expanded Goal Card**:
 A goal card showing its target, progress, controls, and detailed statistics.

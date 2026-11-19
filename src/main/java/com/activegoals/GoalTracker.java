@@ -37,6 +37,29 @@ final class GoalTracker
         return Collections.unmodifiableList(goals);
     }
 
+    void restoreSessionStats(GoalTracker previous)
+    {
+        if (previous == null) return;
+        lastTrainingXpNanos.putAll(previous.lastTrainingXpNanos);
+        Map<String, Goal> byId = new HashMap<>();
+        for (Goal goal : previous.goals) byId.put(goal.id, goal);
+        for (Goal goal : goals)
+        {
+            Goal old = byId.get(goal.id);
+            if (old == null || goal.skill == null || old.skill != goal.skill) continue;
+            goal.sessionXp = old.sessionXp;
+            goal.rateXp = old.rateXp;
+            goal.ratePeriodStartNanos = old.ratePeriodStartNanos;
+            goal.samples.addAll(old.samples);
+            if (!goal.manuallyCollapsed && !goal.completed) goal.expandedAtNanos = old.expandedAtNanos;
+            if (goal.completed && old.completed)
+            {
+                goal.completedAtNanos = old.completedAtNanos;
+                goal.expandedAtNanos = old.expandedAtNanos;
+            }
+        }
+    }
+
     void clear()
     {
         goals.clear();
@@ -189,10 +212,17 @@ final class GoalTracker
         Long previous = lastTrainingXpNanos.put(skill, now);
         if (previous != null && now - previous < delaySeconds * 1_000_000_000L) return;
         List<Goal> moved = new ArrayList<>();
+        List<Goal> remaining = new ArrayList<>();
         for (Goal goal : goals)
+        {
+            if (goal.manuallyCollapsed) continue;
             if (goal.skill == skill && !goal.completed) moved.add(goal);
-        goals.removeAll(moved);
-        goals.addAll(0, moved);
+            else remaining.add(goal);
+        }
+        moved.addAll(remaining);
+        int next = 0;
+        for (int i = 0; i < goals.size(); i++)
+            if (!goals.get(i).manuallyCollapsed) goals.set(i, moved.get(next++));
     }
 
     boolean gain(Skill skill, int currentXp, int gain, long now)

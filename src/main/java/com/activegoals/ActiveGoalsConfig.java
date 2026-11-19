@@ -9,7 +9,7 @@ import net.runelite.client.config.Range;
 @ConfigGroup(ActiveGoalsPlugin.CONFIG_GROUP)
 public interface ActiveGoalsConfig extends Config
 {
-    String VERSION = "1.0.1";
+    String VERSION = "1.0.2";
 
     @ConfigSection(name = "Version " + VERSION, description = "Active Goals release version.",
         position = -1, closedByDefault = true)

@@ -22,3 +22,15 @@ No commits, pushes, tags, merges, release creation, or submission without explic
 - Before every Plugin Hub submission, identify the last confirmed published revision and candidate revision; compare their changes and reconcile the changelog. If the baseline cannot be verified, mark it unknown and report the blocker. Verify applicable version declarations, build/test evidence and intended release contents. Present release version and changelog for approval before any remote action.
 - Local JAR installation (`installRuneLitePlugin`), developer launch (`run`), GitHub commits/tags/releases, PR submission and acceptance are not by themselves proof of Plugin Hub publication. Keep the entry unreleased until actual availability for players is confirmed by reliable evidence or explicit user confirmation. Record submission/acceptance separately in current state if relevant.
 - After confirmed publication, within authorized documentation scope, finalize only the published version entry with the verified publication date (or omit the date and flag it if unknown); preserve all older history. Keep changes not included in the published revision unreleased. If confirmation arrives between sessions, reconcile on the next release-related task; no background monitoring is implied. Never commit/push the finalization or submit a follow-up Hub update without explicit approval.
+
+## Plugin Hub update description template
+
+Use this format for future Active Goals release descriptions. Replace the placeholders with the approved version and verified player-facing changes included in the proposed revision; add or remove bullets as needed.
+
+```text
+Updates Active Goals to version [VERSION].
+
+- [Player-facing change.]
+- [Player-facing change.]
+- [Player-facing change.]
+```
