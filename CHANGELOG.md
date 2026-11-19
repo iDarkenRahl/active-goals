@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Manually collapsed goal cards stay in place when training activity reorders other cards.
+
 ## 1.0.2 — 2026-11-18
 
 - The dashboard explains how to add a goal when the current profile has none.

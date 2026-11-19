@@ -189,10 +189,17 @@ final class GoalTracker
         Long previous = lastTrainingXpNanos.put(skill, now);
         if (previous != null && now - previous < delaySeconds * 1_000_000_000L) return;
         List<Goal> moved = new ArrayList<>();
+        List<Goal> remaining = new ArrayList<>();
         for (Goal goal : goals)
+        {
+            if (goal.manuallyCollapsed) continue;
             if (goal.skill == skill && !goal.completed) moved.add(goal);
-        goals.removeAll(moved);
-        goals.addAll(0, moved);
+            else remaining.add(goal);
+        }
+        moved.addAll(remaining);
+        int next = 0;
+        for (int i = 0; i < goals.size(); i++)
+            if (!goals.get(i).manuallyCollapsed) goals.set(i, moved.get(next++));
     }
 
     boolean gain(Skill skill, int currentXp, int gain, long now)

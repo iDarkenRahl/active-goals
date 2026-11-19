@@ -78,39 +78,61 @@ class GoalOrderingTest
         assertEquals(next, tracker.goals().get(0));
     }
     @Test
-    void manuallyCollapsedCardMovesWithoutOpeningAndSurvivesReload()
+    void manuallyCollapsedCardStaysInPlaceAndSurvivesReload()
     {
         GoalTracker tracker = GoalTracker.decode("other,FISHING,0,1000,0,false;mine,MINING,0,1000,0,false");
         tracker.restoreManualCollapses("mine");
         assertFalse(tracker.gain(Skill.MINING, 100, 100, 1));
         tracker.recordTrainingGain(Skill.MINING, 1, 5);
-        assertEquals("mine;other", ids(tracker));
-        GoalTracker.Goal mining = tracker.goals().get(0);
+        assertEquals("other;mine", ids(tracker));
+        GoalTracker.Goal mining = tracker.goals().get(1);
         assertTrue(mining.manuallyCollapsed);
         assertEquals(0, mining.expandedAtNanos);
         GoalTracker restored = GoalTracker.decode(tracker.encode());
         restored.restoreManualCollapses(tracker.encodeManualCollapses());
-        assertEquals("mine;other", ids(restored));
-        assertTrue(restored.goals().get(0).manuallyCollapsed);
+        assertEquals("other;mine", ids(restored));
+        assertTrue(restored.goals().get(1).manuallyCollapsed);
     }
 
     @Test
-    void completedCollapsedGoalOpensWhileRemainingGoalMovesAndPersists()
+    void completedCollapsedGoalOpensWhileRemainingGoalStaysAnchoredAndPersists()
     {
         GoalTracker tracker = GoalTracker.decode("other,FISHING,0,1000,0,false;"
             + "short,MINING,0,100,0,false;long,MINING,0,1000,0,false");
         tracker.restoreManualCollapses("short;long");
         assertTrue(tracker.gain(Skill.MINING, 100, 100, 1));
         tracker.recordTrainingGain(Skill.MINING, 1, 5);
-        assertEquals("long;other;short", ids(tracker));
+        assertEquals("other;short;long", ids(tracker));
         assertEquals("long", tracker.encodeManualCollapses());
-        assertTrue(tracker.goals().get(2).completed);
-        assertFalse(tracker.goals().get(2).manuallyCollapsed);
-        assertEquals(1, tracker.goals().get(2).expandedAtNanos);
+        assertTrue(tracker.goals().get(1).completed);
+        assertFalse(tracker.goals().get(1).manuallyCollapsed);
+        assertEquals(1, tracker.goals().get(1).expandedAtNanos);
         GoalTracker restored = GoalTracker.decode(tracker.encode());
         restored.restoreManualCollapses(tracker.encodeManualCollapses());
-        assertEquals("long;other;short", ids(restored));
-        assertTrue(restored.goals().get(0).manuallyCollapsed);
+        assertEquals("other;short;long", ids(restored));
+        assertTrue(restored.goals().get(2).manuallyCollapsed);
+    }
+
+    @Test
+    void activityReordersOnlyUnanchoredSlotsAndRespectsActivityWindowAfterExpansion()
+    {
+        GoalTracker tracker = GoalTracker.decode("a,FISHING,0,1000,0,false;"
+            + "b,MINING,0,1000,0,false;c,WOODCUTTING,0,1000,0,false;"
+            + "d,MINING,0,1000,0,false;e,MINING,0,1000,0,false");
+        tracker.restoreManualCollapses("b;d");
+        tracker.recordTrainingGain(Skill.MINING, 1, 5);
+        assertEquals("e;b;a;d;c", ids(tracker));
+        tracker.goals().get(1).manuallyCollapsed = false;
+        tracker.recordTrainingGain(Skill.MINING, 2, 5);
+        assertEquals("e;b;a;d;c", ids(tracker));
+        tracker.recordTrainingGain(Skill.FISHING, 3, 5);
+        assertEquals("a;e;b;d;c", ids(tracker));
+        tracker.recordTrainingGain(Skill.MINING, 5_000_000_002L, 5);
+        assertEquals("e;b;a;d;c", ids(tracker));
+        GoalTracker restored = GoalTracker.decode(tracker.encode());
+        restored.restoreManualCollapses(tracker.encodeManualCollapses());
+        restored.recordTrainingGain(Skill.FISHING, 1, 5);
+        assertEquals("a;e;b;d;c", ids(restored));
     }
     private static String ids(GoalTracker tracker)
     {
