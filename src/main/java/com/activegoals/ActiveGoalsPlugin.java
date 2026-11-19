@@ -190,12 +190,16 @@ public class ActiveGoalsPlugin extends Plugin
                 throw new IllegalStateException("This goal is already complete.");
             if (xp < 0 || targetXp <= xp || targetXp > 200_000_000L)
                 throw new IllegalArgumentException("Target must be above current Xp.");
+            boolean updateCreated = goal.createdAtEpochMillis == null
+                || goal.targetXp != targetXp || goal.targetLevel != targetLevel;
             goal.targetXp = targetXp;
             goal.targetLevel = targetLevel;
+            if (updateCreated) goal.createdAtEpochMillis = System.currentTimeMillis();
             boolean wasManuallyCollapsed = goal.manuallyCollapsed;
             goal.manuallyCollapsed = false;
             goal.expandedAtNanos = System.nanoTime();
             saveIndividualGoals();
+            if (updateCreated) saveCreationTimes();
             if (wasManuallyCollapsed) saveManualCollapses();
             return;
         }
