@@ -15,6 +15,336 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void pendingExternalChangeDoesNotLoseCompletingXp()
+        throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "cross,MINING,0,3000,0,false;past,MINING,0,3000,0,false");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+
+        saved.put("individualGoals", "cross,MINING,0,1050,0,false;past,MINING,0,900,0,false");
+        saved.put("manuallyCollapsedGoals", "cross");
+        net.runelite.client.events.ConfigChanged event = new net.runelite.client.events.ConfigChanged();
+        event.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+        event.setProfile("a");
+        event.setKey("individualGoals");
+        plugin.onConfigChanged(event);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1100);
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+
+        GoalTracker.Goal crossed = plugin.individualGoals().stream().filter(g -> g.id.equals("cross")).findFirst().get();
+        GoalTracker.Goal alreadyReached = plugin.individualGoals().stream().filter(g -> g.id.equals("past")).findFirst().get();
+        assertTrue(crossed.completed);
+        assertFalse(crossed.manuallyCollapsed);
+        assertEquals(100, crossed.sessionXp);
+        assertTrue(alreadyReached.completed);
+        assertEquals(0, alreadyReached.sessionXp);
+        assertEquals(100, plugin.getSessionOverviewTotalXp());
+        assertEquals("", saved.get("manuallyCollapsedGoals"));
+    }
+
+    @Test
+    void pendingChangesForOldProfileAreNotReplayedAfterReload() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.concurrent.atomic.AtomicReference<String> profile = new java.util.concurrent.atomic.AtomicReference<>("a");
+        java.util.Map<String, java.util.Map<String, String>> saved = new java.util.HashMap<>();
+        saved.put("a", new java.util.HashMap<>());
+        saved.get("a").put("individualGoals", "goal,MINING,0,3000,0,false");
+        saved.get("a").put("manuallyCollapsedGoals", "");
+        when(config.getRSProfileKey()).thenAnswer(call -> profile.get());
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.getOrDefault(profile.get(), java.util.Map.of()).get(call.getArgument(1)));
+        doAnswer(call -> { saved.computeIfAbsent(profile.get(), ignored -> new java.util.HashMap<>())
+            .put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        saved.get("a").put("manuallyCollapsedGoals", "goal");
+        net.runelite.client.events.ConfigChanged event = new net.runelite.client.events.ConfigChanged();
+        event.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+        event.setProfile("a");
+        event.setKey("manuallyCollapsedGoals");
+        event.setOldValue("");
+        event.setNewValue("goal");
+        plugin.onConfigChanged(event);
+        profile.set("b");
+        plugin.onRuneScapeProfileChanged(null);
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        profile.set("a");
+        plugin.onRuneScapeProfileChanged(null);
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertTrue(plugin.individualGoals().get(0).manuallyCollapsed);
+        plugin.setIndividualGoalCollapsed("goal", false);
+        assertEquals("", saved.get("a").get("manuallyCollapsedGoals"));
+        assertFalse(plugin.individualGoals().get(0).manuallyCollapsed);
+    }
+
+    @Test
+    void malformedMetadataDoesNotDiscardLaterNestedChanges() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "keep,MINING,0,3000,0,false;remove,FISHING,0,3000,0,false");
+        saved.put("goalCreationTimes", "keep,100;keep,200;remove,500");
+        java.util.concurrent.atomic.AtomicBoolean nested = new java.util.concurrent.atomic.AtomicBoolean();
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> {
+            String key = call.getArgument(1);
+            String value = call.getArgument(2);
+            saved.put(key, value);
+            if ("individualGoals".equals(key) && nested.getAndSet(false))
+            {
+                String[] versions = {"keep,100;keep,200;remove,500", "keep,300;remove,500", "keep,400;remove,500"};
+                for (int i = 1; i < versions.length; i++)
+                {
+                    net.runelite.client.events.ConfigChanged event = new net.runelite.client.events.ConfigChanged();
+                    event.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+                    event.setProfile("a");
+                    event.setKey("goalCreationTimes");
+                    event.setOldValue(versions[i - 1]);
+                    event.setNewValue(versions[i]);
+                    saved.put("goalCreationTimes", versions[i]);
+                    plugin.onConfigChanged(event);
+                }
+            }
+            return null;
+        }).when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        nested.set(true);
+        plugin.removeIndividualGoal("remove");
+        assertEquals("keep,400", saved.get("goalCreationTimes"));
+        plugin.onGameTick(new GameTick());
+        assertEquals(400L, plugin.individualGoals().get(0).createdAtEpochMillis);
+    }
+
+    @Test
+    void nestedMetadataChangesAreMergedWithGoalRemoval() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "keep,MINING,0,3000,0,false;remove,FISHING,0,3000,0,false");
+        saved.put("manuallyCollapsedGoals", "");
+        saved.put("goalCreationTimes", "keep,100;remove,200");
+        java.util.concurrent.atomic.AtomicBoolean nested = new java.util.concurrent.atomic.AtomicBoolean();
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> {
+            String key = call.getArgument(1);
+            String value = call.getArgument(2);
+            saved.put(key, value);
+            net.runelite.client.events.ConfigChanged own = new net.runelite.client.events.ConfigChanged();
+            own.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+            own.setProfile("a");
+            own.setKey(key);
+            own.setNewValue(value);
+            plugin.onConfigChanged(own);
+            if ("individualGoals".equals(key) && nested.getAndSet(false))
+            {
+                net.runelite.client.events.ConfigChanged collapse = new net.runelite.client.events.ConfigChanged();
+                collapse.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+                collapse.setProfile("a");
+                collapse.setKey("manuallyCollapsedGoals");
+                collapse.setOldValue("");
+                collapse.setNewValue("keep");
+                saved.put("manuallyCollapsedGoals", "keep");
+                plugin.onConfigChanged(collapse);
+                net.runelite.client.events.ConfigChanged times = new net.runelite.client.events.ConfigChanged();
+                times.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+                times.setProfile("a");
+                times.setKey("goalCreationTimes");
+                times.setOldValue("keep,100;remove,200");
+                times.setNewValue("keep,777;remove,200");
+                saved.put("goalCreationTimes", "keep,777;remove,200");
+                plugin.onConfigChanged(times);
+            }
+            return null;
+        }).when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        nested.set(true);
+        plugin.removeIndividualGoal("remove");
+        assertEquals("keep,MINING,0,3000,0,false", saved.get("individualGoals"));
+        assertEquals("keep", saved.get("manuallyCollapsedGoals"));
+        assertEquals("keep,777", saved.get("goalCreationTimes"));
+        plugin.onGameTick(new GameTick());
+        assertTrue(plugin.individualGoals().get(0).manuallyCollapsed);
+        assertEquals(777L, plugin.individualGoals().get(0).createdAtEpochMillis);
+    }
+
+    @Test
+    void externalActiveProfileChangesAreAppliedBeforeNextXpSave() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        net.runelite.client.callback.ClientThread clientThread = mock(net.runelite.client.callback.ClientThread.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        java.util.concurrent.atomic.AtomicBoolean nestedUpdate = new java.util.concurrent.atomic.AtomicBoolean();
+        saved.put("individualGoals", "keep,MINING,1000,3000,0,false;remove,FISHING,0,3000,0,false");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> {
+            String key = call.getArgument(1);
+            String value = call.getArgument(2);
+            saved.put(key, value);
+            net.runelite.client.events.ConfigChanged internal = new net.runelite.client.events.ConfigChanged();
+            internal.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+            internal.setProfile("a");
+            internal.setKey(key);
+            internal.setNewValue(value);
+            plugin.onConfigChanged(internal);
+            if ("individualGoals".equals(key) && nestedUpdate.getAndSet(false))
+            {
+                saved.put("manuallyCollapsedGoals", "keep");
+                net.runelite.client.events.ConfigChanged nested = new net.runelite.client.events.ConfigChanged();
+                nested.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+                nested.setProfile("a");
+                nested.setKey("manuallyCollapsedGoals");
+                nested.setNewValue("keep");
+                plugin.onConfigChanged(nested);
+            }
+            return null;
+        }).when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "clientThread", clientThread);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+        long oldAction = plugin.goalActionSession();
+        verify(clientThread, never()).invokeLater(any(Runnable.class));
+
+        String updated = "new,FISHING,0,4000,0,false;keep,MINING,1000,4000,0,false";
+        saved.put("individualGoals", updated);
+        saved.put("manuallyCollapsedGoals", "keep");
+        saved.put("goalCreationTimes", "keep,123456");
+        net.runelite.client.events.ConfigChanged external = new net.runelite.client.events.ConfigChanged();
+        external.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+        external.setProfile("a");
+        external.setKey("individualGoals");
+        plugin.onConfigChanged(external);
+        // The queued client-thread refresh has not executed yet.
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1150, 9, 9));
+        assertEquals(updated, saved.get("individualGoals"));
+        assertEquals(2, plugin.individualGoals().size());
+        GoalTracker.Goal kept = plugin.individualGoals().stream().filter(g -> g.id.equals("keep")).findFirst().get();
+        assertEquals(150, kept.sessionXp);
+        assertTrue(kept.manuallyCollapsed);
+        assertEquals(123456L, kept.createdAtEpochMillis);
+        assertThrows(IllegalStateException.class, () -> plugin.requireGoalAction(oldAction));
+
+        long currentAction = plugin.goalActionSession();
+        external.setProfile("other-profile");
+        plugin.onConfigChanged(external);
+        plugin.requireGoalAction(currentAction);
+        saved.put("manuallyCollapsedGoals", "");
+        saved.put("goalCreationTimes", "keep,654321");
+        external.setProfile("a");
+        external.setKey("manuallyCollapsedGoals");
+        plugin.onConfigChanged(external);
+        assertThrows(IllegalStateException.class, () -> plugin.requireGoalAction(currentAction));
+        kept = plugin.individualGoals().stream().filter(g -> g.id.equals("keep")).findFirst().get();
+        assertFalse(kept.manuallyCollapsed);
+        assertEquals(654321L, kept.createdAtEpochMillis);
+        assertEquals(150, kept.sessionXp);
+
+        long beforeNested = plugin.goalActionSession();
+        nestedUpdate.set(true);
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1200, 9, 9));
+        assertThrows(IllegalStateException.class, () -> plugin.requireGoalAction(beforeNested));
+        kept = plugin.individualGoals().stream().filter(g -> g.id.equals("keep")).findFirst().get();
+        assertTrue(kept.manuallyCollapsed);
+        assertEquals(200, kept.sessionXp);
+    }
+
+    @Test
+    void externallyLoweredTargetCompletesImmediately()
+        throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "goal,MINING,1000,3000,0,false");
+        saved.put("manuallyCollapsedGoals", "goal");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1100);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        saved.put("individualGoals", "goal,MINING,1000,1050,0,false");
+        net.runelite.client.events.ConfigChanged changed = new net.runelite.client.events.ConfigChanged();
+        changed.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+        changed.setProfile("a");
+        changed.setKey("individualGoals");
+        plugin.onConfigChanged(changed);
+        plugin.onGameTick(new GameTick());
+        GoalTracker.Goal goal = plugin.individualGoals().get(0);
+        assertTrue(goal.completed);
+        assertFalse(goal.manuallyCollapsed);
+        assertNotEquals(0, goal.completedAtNanos);
+        assertEquals("goal,MINING,1000,1050,0,true", saved.get("individualGoals"));
+        assertEquals("", saved.get("manuallyCollapsedGoals"));
+    }
+
+    @Test
     void reloadUsesSavedGoalsAndMetadataWhilePreservingMatchingSessionStats() throws Exception
     {
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();

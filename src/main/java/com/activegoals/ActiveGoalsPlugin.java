@@ -12,7 +12,10 @@ import net.runelite.client.events.RuneScapeProfileChanged;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -63,12 +66,51 @@ public class ActiveGoalsPlugin extends Plugin
     private final Map<Skill, Long> completedAtNanos = new EnumMap<>(Skill.class);
     private GoalTracker individualGoals = new GoalTracker();
     private boolean individualGoalsLoaded;
-    private String loadedRSProfileKey;
+    private volatile String loadedRSProfileKey;
     private volatile long profileSession;
     private final Map<String, GoalTracker> sessionGoals = new HashMap<>();
     private final Map<String, Long> goalsPausedAtNanos = new HashMap<>();
     private final Map<String, Map<Skill, Long>> sessionXpByProfile = new HashMap<>();
     private final Map<String, Long> sessionTimeByProfile = new HashMap<>();
+    private final AtomicBoolean externalGoalsChanged = new AtomicBoolean();
+    private final ConcurrentLinkedQueue<ProfileConfigChange> pendingProfileChanges = new ConcurrentLinkedQueue<>();
+    private final ThreadLocal<ProfileConfigWrite> writingProfileConfig = new ThreadLocal<>();
+
+    private static final class ProfileConfigWrite
+    {
+        final String profile;
+        final String key;
+        final String value;
+
+        ProfileConfigWrite(String profile, String key, String value)
+        {
+            this.profile = profile;
+            this.key = key;
+            this.value = value;
+        }
+
+        boolean matches(ConfigChanged event)
+        {
+            return Objects.equals(profile, event.getProfile()) && key.equals(event.getKey())
+                && Objects.equals(value, event.getNewValue());
+        }
+    }
+
+    private static final class ProfileConfigChange
+    {
+        final String profile;
+        final String key;
+        final String oldValue;
+        final String newValue;
+
+        ProfileConfigChange(ConfigChanged event)
+        {
+            profile = event.getProfile();
+            key = event.getKey();
+            oldValue = event.getOldValue();
+            newValue = event.getNewValue();
+        }
+    }
 
     private String sessionKey()
     {
@@ -145,14 +187,16 @@ public class ActiveGoalsPlugin extends Plugin
 
     boolean goalProfileLoading() { return client.getGameState() == GameState.LOGGED_IN && !goalDataReady(); }
 
-    void requireGoalAction(long session)
+    synchronized void requireGoalAction(long session)
     {
+        reconcileExternalGoals();
         if (session != profileSession) throw new IllegalStateException("Profile changed.");
         if (!goalDataReady()) throw new IllegalStateException("Wait for your profile to load, then try again.");
     }
 
     synchronized void addIndividualGoal(Skill skill, int targetLevel, long targetXp)
     {
+        reconcileExternalGoals();
         if (!goalDataReady()) throw new IllegalStateException("Log in before adding a goal.");
         int xp = client.getSkillExperience(skill);
         if (xp < 0 || targetXp <= xp || targetXp > 200_000_000L)
@@ -166,21 +210,73 @@ public class ActiveGoalsPlugin extends Plugin
 
     void saveIndividualGoals()
     {
-        configManager.setRSProfileConfiguration(CONFIG_GROUP, "individualGoals", individualGoals.encode());
+        writeProfileConfig("individualGoals", individualGoals.encode());
     }
 
     private void saveManualCollapses()
     {
-        configManager.setRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals", individualGoals.encodeManualCollapses());
+        writeProfileConfig("manuallyCollapsedGoals", individualGoals.encodeManualCollapses());
     }
 
     private void saveCreationTimes()
     {
-        configManager.setRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes", individualGoals.encodeCreationTimes());
+        writeProfileConfig("goalCreationTimes", individualGoals.encodeCreationTimes());
+    }
+
+    private void writeProfileConfig(String key, String value)
+    {
+        if ("manuallyCollapsedGoals".equals(key) || "goalCreationTimes".equals(key))
+            value = mergePendingMetadata(key, value);
+        ProfileConfigWrite previous = writingProfileConfig.get();
+        writingProfileConfig.set(new ProfileConfigWrite(configManager.getRSProfileKey(), key, value));
+        try { configManager.setRSProfileConfiguration(CONFIG_GROUP, key, value); }
+        finally
+        {
+            if (previous == null) writingProfileConfig.remove();
+            else writingProfileConfig.set(previous);
+        }
+    }
+
+    private String mergePendingMetadata(String key, String desired)
+    {
+        Map<String, List<String>> merged = parseMetadata(key, desired);
+        for (ProfileConfigChange change : pendingProfileChanges)
+        {
+            if (!key.equals(change.key) || !Objects.equals(loadedRSProfileKey, change.profile)) continue;
+            Map<String, List<String>> before = parseMetadata(key, change.oldValue);
+            Map<String, List<String>> after = parseMetadata(key, change.newValue);
+            java.util.Set<String> ids = new java.util.HashSet<>(before.keySet());
+            ids.addAll(after.keySet());
+            for (String id : ids)
+            {
+                if (Objects.equals(before.get(id), after.get(id))) continue;
+                if (after.containsKey(id)) merged.put(id, after.get(id));
+                else merged.remove(id);
+            }
+            pendingProfileChanges.remove(change);
+        }
+        List<String> records = new ArrayList<>();
+        for (List<String> entries : merged.values()) records.addAll(entries);
+        return String.join(";", records);
+    }
+
+    private static Map<String, List<String>> parseMetadata(String key, String value)
+    {
+        Map<String, List<String>> records = new LinkedHashMap<>();
+        if (value == null || value.isEmpty()) return records;
+        for (String record : value.split(";", -1))
+        {
+            int separator = record.indexOf(',');
+            String id = "goalCreationTimes".equals(key) && separator >= 0
+                ? record.substring(0, separator) : record;
+            records.computeIfAbsent(id, ignored -> new ArrayList<>()).add(record);
+        }
+        return records;
     }
 
     synchronized void setIndividualGoalCollapsed(String id, boolean collapsed)
     {
+        reconcileExternalGoals();
         if (!goalDataReady() || !Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())) return;
         for (GoalTracker.Goal goal : individualGoals.goals())
         {
@@ -194,6 +290,7 @@ public class ActiveGoalsPlugin extends Plugin
 
     synchronized void removeIndividualGoal(String id)
     {
+        reconcileExternalGoals();
         if (!goalDataReady() || !Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())) return;
         individualGoals.remove(id);
         saveIndividualGoals();
@@ -203,6 +300,7 @@ public class ActiveGoalsPlugin extends Plugin
 
     synchronized void editIndividualGoal(String id, int targetLevel, long targetXp)
     {
+        reconcileExternalGoals();
         if (!goalDataReady()) throw new IllegalStateException("Log in before editing a goal.");
         expireGoalExpansions(System.nanoTime());
         if (!Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey()))
@@ -294,7 +392,68 @@ public class ActiveGoalsPlugin extends Plugin
     {
         if (CONFIG_GROUP.equals(event.getGroup()))
         {
+            String key = event.getKey();
+            ProfileConfigWrite ownWrite = writingProfileConfig.get();
+            if ((ownWrite == null || !ownWrite.matches(event)) && loadedRSProfileKey != null
+                && loadedRSProfileKey.equals(event.getProfile())
+                && ("individualGoals".equals(key) || "manuallyCollapsedGoals".equals(key)
+                    || "goalCreationTimes".equals(key)))
+            {
+                pendingProfileChanges.add(new ProfileConfigChange(event));
+                externalGoalsChanged.set(true);
+                clientThread.invokeLater(() ->
+                {
+                    synchronized (ActiveGoalsPlugin.this) { reconcileExternalGoals(); }
+                    activeGoalsPanel.requestRefresh();
+                });
+            }
             activeGoalsPanel.requestRefresh();
+        }
+    }
+
+    private void reconcileExternalGoals()
+    {
+        reconcileExternalGoals(null, null);
+    }
+
+    private void reconcileExternalGoals(Skill pendingSkill, Integer previousXp)
+    {
+        if (!individualGoalsLoaded || loadedRSProfileKey == null
+            || !loadedRSProfileKey.equals(configManager.getRSProfileKey())
+            || xpBaselineTicks != 0 || client.getGameState() != GameState.LOGGED_IN) return;
+        while (externalGoalsChanged.getAndSet(false))
+        {
+            pendingProfileChanges.removeIf(change -> Objects.equals(loadedRSProfileKey, change.profile));
+            GoalTracker previous = individualGoals;
+            GoalTracker restored = GoalTracker.decode(configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals"));
+            restored.restoreCreationTimes(configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes"));
+            restored.restoreManualCollapses(configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals"));
+            restored.restoreSessionStats(previous);
+            long now = System.nanoTime();
+            boolean completedChanged = false;
+            boolean collapseChanged = false;
+            for (GoalTracker.Goal goal : restored.goals())
+            {
+                boolean completesInPendingGain = goal.skill == pendingSkill && previousXp != null
+                    && goal.targetXp > previousXp;
+                if (!goal.completed && goal.skill != null && !completesInPendingGain
+                    && client.getSkillExperience(goal.skill) >= goal.targetXp)
+                {
+                    goal.completed = true;
+                    collapseChanged |= goal.manuallyCollapsed;
+                    goal.manuallyCollapsed = false;
+                    completedChanged = true;
+                }
+                if (goal.completed && goal.completedAtNanos == 0)
+                {
+                    goal.completedAtNanos = now;
+                    goal.expandedAtNanos = now;
+                }
+            }
+            individualGoals = restored;
+            if (completedChanged) saveIndividualGoals();
+            if (collapseChanged) saveManualCollapses();
+            profileSession++;
         }
     }
 
@@ -357,6 +516,7 @@ public class ActiveGoalsPlugin extends Plugin
     @Subscribe
     public synchronized void onGameTick(GameTick event)
     {
+        reconcileExternalGoals();
         if (client.getGameState() != GameState.LOGGED_IN)
         {
             return;
@@ -417,8 +577,10 @@ public class ActiveGoalsPlugin extends Plugin
         trackedAccountHash = accountHash;
         if (!individualGoalsLoaded)
         {
+            String profileKey = configManager.getRSProfileKey();
+            pendingProfileChanges.removeIf(change -> Objects.equals(profileKey, change.profile));
             String saved = configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals");
-            loadedRSProfileKey = configManager.getRSProfileKey();
+            loadedRSProfileKey = profileKey;
             GoalTracker cached = sessionGoals.get(sessionKey());
             individualGoals = GoalTracker.decode(saved);
             String creationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
@@ -507,6 +669,10 @@ public class ActiveGoalsPlugin extends Plugin
     public synchronized void onStatChanged(StatChanged event)
     {
         Skill skill = event.getSkill();
+        Integer previousXp = lastXp.get(skill);
+        boolean hasPendingGain = xpBaselineTicks == 0 && skill != Skill.OVERALL
+            && previousXp != null && event.getXp() > previousXp;
+        reconcileExternalGoals(hasPendingGain ? skill : null, hasPendingGain ? previousXp : null);
         if (xpBaselineTicks > 0 || skill == Skill.OVERALL) return;
         int xp = event.getXp();
         if (xp < 0) return;

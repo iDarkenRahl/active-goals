@@ -40,6 +40,7 @@ final class GoalTracker
     void restoreSessionStats(GoalTracker previous)
     {
         if (previous == null) return;
+        lastTrainingXpNanos.putAll(previous.lastTrainingXpNanos);
         Map<String, Goal> byId = new HashMap<>();
         for (Goal goal : previous.goals) byId.put(goal.id, goal);
         for (Goal goal : goals)
