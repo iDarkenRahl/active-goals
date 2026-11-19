@@ -1,8 +1,13 @@
 # Changelog
 
-## 1.0.1 — Unreleased
+## 1.0.2 — Unreleased
 
 - The dashboard explains how to add a goal when the current profile has none.
+- Pending goal actions are canceled when switching characters or game modes.
+- Saving a goal fills in an unknown Created date; changing its target updates the date.
+
+## 1.0.1
+
 - Manually collapsed goal cards stay closed until expanded, edited, or completed.
 - Recently trained skills move to the top of the goal list when a new training activity starts.
 - Hover over a goal's progress bar to see XP gained and the total XP needed for the goal.
