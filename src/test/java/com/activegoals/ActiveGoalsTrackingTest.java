@@ -15,6 +15,79 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void externalMetadataWritesAreObservedBeforeDelayedNotifications() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = mockProfileConfig(config);
+        saved.put("individualGoals", "keep,MINING,0,3000,0,false;remove,FISHING,0,3000,0,false");
+        saved.put("manuallyCollapsedGoals", "");
+        saved.put("goalCreationTimes", "keep,100;remove,200");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+
+        // Both external writes are visible before their ConfigChanged notifications.
+        saved.put("manuallyCollapsedGoals", "keep");
+        saved.put("goalCreationTimes", "keep,777;remove,200");
+        plugin.removeIndividualGoal("remove");
+        assertEquals("keep", saved.get("manuallyCollapsedGoals"));
+        assertEquals("keep,777", saved.get("goalCreationTimes"));
+        assertTrue(plugin.individualGoals().get(0).manuallyCollapsed);
+        assertEquals(777L, plugin.individualGoals().get(0).createdAtEpochMillis);
+    }
+
+    @Test
+    void externalGoalWriteIsObservedBeforeItsDelayedNotification() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "keep,MINING,0,3000,0,false");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "clientThread", mock(net.runelite.client.callback.ClientThread.class));
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+
+        // An external writer has changed the configuration but not posted ConfigChanged yet.
+        String externalValue = "new,FISHING,0,4000,0,false;keep,MINING,0,4500,0,false";
+        saved.put("individualGoals", externalValue);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1100);
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+        GoalTracker persisted = GoalTracker.decode(saved.get("individualGoals"));
+        assertEquals(2, persisted.goals().size());
+        assertTrue(persisted.goals().stream().anyMatch(goal -> goal.id.equals("new")));
+        assertEquals(4500, persisted.goals().stream().filter(goal -> goal.id.equals("keep")).findFirst().get().targetXp);
+        assertEquals(100, plugin.individualGoals().stream().filter(goal -> goal.id.equals("keep")).findFirst().get().sessionXp);
+        net.runelite.client.events.ConfigChanged delayed = new net.runelite.client.events.ConfigChanged();
+        delayed.setGroup(ActiveGoalsPlugin.CONFIG_GROUP);
+        delayed.setProfile("a");
+        delayed.setKey("individualGoals");
+        delayed.setOldValue("keep,MINING,0,3000,0,false");
+        delayed.setNewValue(externalValue);
+        plugin.onConfigChanged(delayed);
+        plugin.onGameTick(new GameTick());
+        assertEquals(2, plugin.individualGoals().size());
+        assertEquals(100, plugin.individualGoals().stream().filter(goal -> goal.id.equals("keep")).findFirst().get().sessionXp);
+    }
+
+    @Test
     void pendingExternalChangeDoesNotLoseCompletingXp()
         throws Exception
     {
@@ -507,6 +580,7 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        mockProfileConfig(config);
         java.util.concurrent.atomic.AtomicReference<String> profile = new java.util.concurrent.atomic.AtomicReference<>("a");
         when(config.getRSProfileKey()).thenAnswer(call -> profile.get());
         when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
@@ -852,12 +926,15 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = mockProfileConfig(config);
         when(config.getRSProfileKey()).thenReturn("character-a");
         inject(plugin, "loadedRSProfileKey", "character-a");
         GoalTracker tracker = new GoalTracker();
         GoalTracker.Goal edited = tracker.add(Skill.MINING, 1000, 2000, 1);
         GoalTracker.Goal other = tracker.add(Skill.MINING, 1000, 2000, 2);
         tracker.gain(Skill.MINING, 1250, 250, 3);
+        saved.put("individualGoals", tracker.encode());
+        inject(plugin, "knownSavedGoals", tracker.encode());
         edited.expandedAtNanos = 0;
         inject(plugin, "client", client);
         inject(plugin, "configManager", config);
@@ -895,6 +972,7 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        mockProfileConfig(config);
         when(config.getRSProfileKey()).thenReturn("character-a");
         inject(plugin, "loadedRSProfileKey", "character-a");
         inject(plugin, "client", client);
@@ -938,6 +1016,16 @@ class ActiveGoalsTrackingTest
         assertTrue(plugin.individualGoals().isEmpty());
         verify(config, never()).getConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "individualGoals");
         verify(config).setRSProfileConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "individualGoals", "");
+    }
+
+    private static java.util.Map<String, String> mockProfileConfig(ConfigManager config)
+    {
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        return saved;
     }
 
     private static void inject(ActiveGoalsPlugin plugin, String name, Object value) throws Exception

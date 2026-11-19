@@ -73,6 +73,9 @@ public class ActiveGoalsPlugin extends Plugin
     private final Map<String, Map<Skill, Long>> sessionXpByProfile = new HashMap<>();
     private final Map<String, Long> sessionTimeByProfile = new HashMap<>();
     private final AtomicBoolean externalGoalsChanged = new AtomicBoolean();
+    private String knownSavedGoals;
+    private String knownSavedCollapses;
+    private String knownSavedCreationTimes;
     private final ConcurrentLinkedQueue<ProfileConfigChange> pendingProfileChanges = new ConcurrentLinkedQueue<>();
     private final ThreadLocal<ProfileConfigWrite> writingProfileConfig = new ThreadLocal<>();
 
@@ -235,6 +238,9 @@ public class ActiveGoalsPlugin extends Plugin
             if (previous == null) writingProfileConfig.remove();
             else writingProfileConfig.set(previous);
         }
+        if ("individualGoals".equals(key)) knownSavedGoals = value;
+        else if ("manuallyCollapsedGoals".equals(key)) knownSavedCollapses = value;
+        else if ("goalCreationTimes".equals(key)) knownSavedCreationTimes = value;
     }
 
     private String mergePendingMetadata(String key, String desired)
@@ -421,13 +427,23 @@ public class ActiveGoalsPlugin extends Plugin
         if (!individualGoalsLoaded || loadedRSProfileKey == null
             || !loadedRSProfileKey.equals(configManager.getRSProfileKey())
             || xpBaselineTicks != 0 || client.getGameState() != GameState.LOGGED_IN) return;
+        if (!Objects.equals(knownSavedGoals,
+            configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals"))
+            || !Objects.equals(knownSavedCollapses,
+                configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals"))
+            || !Objects.equals(knownSavedCreationTimes,
+                configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes")))
+            externalGoalsChanged.set(true);
         while (externalGoalsChanged.getAndSet(false))
         {
             pendingProfileChanges.removeIf(change -> Objects.equals(loadedRSProfileKey, change.profile));
             GoalTracker previous = individualGoals;
-            GoalTracker restored = GoalTracker.decode(configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals"));
-            restored.restoreCreationTimes(configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes"));
-            restored.restoreManualCollapses(configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals"));
+            knownSavedGoals = configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals");
+            GoalTracker restored = GoalTracker.decode(knownSavedGoals);
+            knownSavedCreationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
+            knownSavedCollapses = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
+            restored.restoreCreationTimes(knownSavedCreationTimes);
+            restored.restoreManualCollapses(knownSavedCollapses);
             restored.restoreSessionStats(previous);
             long now = System.nanoTime();
             boolean completedChanged = false;
@@ -580,12 +596,15 @@ public class ActiveGoalsPlugin extends Plugin
             String profileKey = configManager.getRSProfileKey();
             pendingProfileChanges.removeIf(change -> Objects.equals(profileKey, change.profile));
             String saved = configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals");
+            knownSavedGoals = saved;
             loadedRSProfileKey = profileKey;
             GoalTracker cached = sessionGoals.get(sessionKey());
             individualGoals = GoalTracker.decode(saved);
             String creationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
+            knownSavedCreationTimes = creationTimes;
             individualGoals.restoreCreationTimes(creationTimes);
             String collapsed = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
+            knownSavedCollapses = collapsed;
             individualGoals.restoreManualCollapses(collapsed);
             individualGoals.restoreSessionStats(cached);
             boolean removedCompleted = false;
