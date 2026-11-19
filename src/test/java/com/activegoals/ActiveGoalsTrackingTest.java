@@ -15,6 +15,99 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void sessionTotalsSurviveLogoutProfileSwitchAndPluginToggle() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.concurrent.atomic.AtomicReference<String> profile = new java.util.concurrent.atomic.AtomicReference<>("a");
+        when(config.getRSProfileKey()).thenAnswer(call -> profile.get());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "clientToolbar", mock(net.runelite.client.ui.ClientToolbar.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        plugin.addIndividualGoal(Skill.MINING, 0, 2000);
+        GoalTracker.Goal goal = plugin.individualGoals().get(0);
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+        inject(plugin, "sessionStartNanos", System.nanoTime() - 5_000_000_000L);
+
+        GameStateChanged logout = new GameStateChanged();
+        logout.setGameState(GameState.LOGIN_SCREEN);
+        plugin.onGameStateChanged(logout);
+        profile.set("b");
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertEquals(0, plugin.getSessionOverviewTotalXp());
+        assertEquals(0, plugin.getSessionSeconds());
+        assertTrue(plugin.individualGoals().isEmpty());
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1060, 9, 9));
+        assertEquals(60, plugin.getSessionOverviewTotalXp());
+        plugin.onGameStateChanged(logout);
+        profile.set("a");
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1100);
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertEquals(100, plugin.getSessionOverviewTotalXp());
+        assertSame(goal, plugin.individualGoals().get(0));
+        assertEquals(100, goal.sessionXp);
+        assertTrue(plugin.getSessionSeconds() >= 5);
+
+        plugin.shutDown();
+        plugin.startUp();
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1500);
+        plugin.onGameTick(new GameTick());
+        assertEquals(100, plugin.getSessionOverviewTotalXp());
+        assertSame(goal, plugin.individualGoals().get(0));
+        assertEquals(100, goal.sessionXp);
+        assertTrue(plugin.getSessionSeconds() >= 5);
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1550, 9, 9));
+        assertEquals(150, plugin.getSessionOverviewTotalXp());
+        assertEquals(150, goal.sessionXp);
+        plugin.onGameStateChanged(logout);
+        profile.set("b");
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertEquals(60, plugin.getSessionOverviewTotalXp());
+
+        ActiveGoalsPlugin newClientSession = new ActiveGoalsPlugin();
+        inject(newClientSession, "client", client);
+        inject(newClientSession, "configManager", config);
+        inject(newClientSession, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(newClientSession, "xpBaselineTicks", 1);
+        newClientSession.onGameTick(new GameTick());
+        assertEquals(0, newClientSession.getSessionOverviewTotalXp());
+    }
+
+    @Test
+    void sessionTimePausesDuringLoadingAndDisconnect() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        inject(plugin, "sessionStartNanos", System.nanoTime() - 3_000_000_000L);
+        GameStateChanged event = new GameStateChanged();
+        event.setGameState(GameState.LOADING);
+        plugin.onGameStateChanged(event);
+        assertEquals(3, plugin.getSessionSeconds());
+        event.setGameState(GameState.CONNECTION_LOST);
+        plugin.onGameStateChanged(event);
+        assertEquals(3, plugin.getSessionSeconds());
+        plugin.onGameTick(new GameTick());
+        assertTrue(plugin.getSessionSeconds() >= 3);
+    }
+
+    @Test
     void profileChangesInvalidatePendingActionsEvenAfterReturning() throws Exception
     {
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();

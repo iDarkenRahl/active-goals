@@ -7,12 +7,13 @@ Verified against the local checkout on 2026-11-18; this describes code and confi
 - `settings.gradle` names the project `ActiveGoals`. Release version declarations are maintained in both `runelite-plugin.properties` files and `ActiveGoalsConfig.VERSION`; `ActiveGoalsVersionTest` checks their consistency. See [current state](../CURRENT_STATE.md) and the [changelog](../../CHANGELOG.md) for changing release and publication information.
 
 ## Entry points and plugin lifecycle
-- `src/main/java/com/activegoals/ActiveGoalsPlugin.java` is the RuneLite plugin. Startup resets tracking state, adds a navigation button and starts the panel; shutdown stops the panel and removes the button. It subscribes to config, game state, RuneScape profile, game tick and stat changes.
+- `src/main/java/com/activegoals/ActiveGoalsPlugin.java` is the RuneLite plugin. Startup resets XP baselines, adds a navigation button and starts the panel; shutdown pauses session tracking, stops the panel and removes the button. It subscribes to config, game state, RuneScape profile, game tick and stat changes.
 
 ## Domain logic and event flow
 - `GoalTracker.java` owns individual goal records, encoding/decoding, metadata, activity and card state. `ActiveGoalsPlugin.java` manages profile loading, XP baselines, events, tracking and persistence. `GLOSSARY.md` defines the project language.
 - Relevant decisions: [character- and game-mode-scoped goals](../adr/0001-character-scoped-goals.md) and [independent goal records](../adr/0002-independent-goals.md).
 - Login/profile changes reset or reload tracking context; stat changes feed XP tracking and game ticks handle timed state. See the event handlers in `ActiveGoalsPlugin.java` for exact conditions.
+- Session overview XP, logged-in time and individual goal tracking are kept in plugin-instance memory by profile and account hash. They are restored on profile return or plugin re-enablement; no session statistics are written to configuration. In-client plugin-instance reuse remains unverified for the resolved RuneLite version.
 - Goal actions are tied to the profile session shown by the sidebar. A logout or profile-key change invalidates queued actions, including when the original profile is later reloaded; mutations also require a matching, loaded profile key. The saved-goal format is unchanged.
 
 ## UI components and threading
