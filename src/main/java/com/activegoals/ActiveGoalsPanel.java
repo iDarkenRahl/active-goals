@@ -151,7 +151,9 @@ public class ActiveGoalsPanel extends PluginPanel
             long now = plugin.goalClockNanos();
             plugin.expireGoalExpansions(now);
             
-            for (GoalTracker.Goal record : plugin.individualGoals())
+            List<GoalTracker.Goal> records = plugin.individualGoals();
+            boolean noGoals = records.isEmpty();
+            for (GoalTracker.Goal record : records)
             {
                 if (record.skill == null)
                 {
@@ -185,7 +187,7 @@ public class ActiveGoalsPanel extends PluginPanel
                     return;
                 }
                 refreshPending = false;
-                renderDashboard(goals, sessionOverviewXp, sessionSeconds, ready);
+                renderDashboard(goals, sessionOverviewXp, sessionSeconds, ready, noGoals);
             });
         });
     }
@@ -200,7 +202,7 @@ public class ActiveGoalsPanel extends PluginPanel
         });
     }
 
-    private void renderDashboard(List<GoalSnapshot> goals, long sessionOverviewXp, long seconds, boolean ready)
+    private void renderDashboard(List<GoalSnapshot> goals, long sessionOverviewXp, long seconds, boolean ready, boolean noGoals)
     {
         // The hovered goal survives card reconstruction; its new bar is bound below.
         hoveredProgressBar = null;
@@ -226,6 +228,8 @@ public class ActiveGoalsPanel extends PluginPanel
         content.add(fullWidth(goalHeader), index++);
         if (!ready)
             content.add(label("Log in to add goals.", MUTED, Font.PLAIN), index++);
+        else if (noGoals && goalForm == null)
+            content.add(label("No goals yet. Select + to add one.", MUTED, Font.PLAIN), index++);
         content.add(Box.createVerticalStrut(8), index++);
         if (goalForm != null)
         {
