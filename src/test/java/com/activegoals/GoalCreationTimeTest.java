@@ -41,7 +41,7 @@ class GoalCreationTimeTest
     }
 
     @Test
-    void creationTimeSurvivesEditReloadAndIsRemovedWithGoal() throws Exception
+    void createdDateTracksTargetChangesAndSurvivesReload() throws Exception
     {
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
@@ -60,19 +60,62 @@ class GoalCreationTimeTest
         GoalTracker.Goal goal = plugin.individualGoals().get(0);
         assertNotNull(goal.createdAtEpochMillis);
         assertTrue(goal.createdAtEpochMillis >= before && goal.createdAtEpochMillis <= after);
-        long created = goal.createdAtEpochMillis;
+        goal.createdAtEpochMillis = 1L;
         String id = goal.id;
         assertEquals(6, saved.get("individualGoals").split(",", -1).length);
+        plugin.editIndividualGoal(id, 0, 2000);
+        assertEquals(1L, goal.createdAtEpochMillis);
+        long editedBefore = System.currentTimeMillis();
         plugin.editIndividualGoal(id, 0, 3000);
-        assertEquals(created, goal.createdAtEpochMillis);
+        long editedAfter = System.currentTimeMillis();
+        long updated = goal.createdAtEpochMillis;
+        assertTrue(updated >= editedBefore && updated <= editedAfter);
 
         ActiveGoalsPlugin restarted = plugin(client, config);
         GoalTracker.Goal restored = restarted.individualGoals().get(0);
         assertEquals(id, restored.id);
-        assertEquals(created, restored.createdAtEpochMillis);
+        assertEquals(updated, restored.createdAtEpochMillis);
         restarted.removeIndividualGoal(id);
         assertTrue(restarted.individualGoals().isEmpty());
         assertFalse(saved.getOrDefault("goalCreationTimes", "").contains(id));
+    }
+
+    @Test
+    void savingUnknownDateAndChangingTargetTypeUpdatesDateWithoutResettingProgress() throws Exception
+    {
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        Map<String, String> saved = new HashMap<>();
+        saved.put("individualGoals", "legacy,MINING,1000,3000,0,false");
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1500);
+        ActiveGoalsPlugin plugin = plugin(client, config);
+        GoalTracker.Goal goal = plugin.individualGoals().get(0);
+        goal.sessionXp = 200;
+        assertNull(goal.createdAtEpochMillis);
+        long before = System.currentTimeMillis();
+        plugin.editIndividualGoal(goal.id, 0, 3000);
+        long after = System.currentTimeMillis();
+        assertTrue(goal.createdAtEpochMillis >= before && goal.createdAtEpochMillis <= after);
+        assertEquals(goal.createdAtEpochMillis, plugin(client, config).individualGoals().get(0).createdAtEpochMillis);
+        assertEquals(1000, goal.startXp);
+        assertEquals(200, goal.sessionXp);
+        assertEquals(0.25, goal.progress(1500));
+
+        int level = 20;
+        int levelXp = ActiveGoalsPlugin.xpForLevel(level);
+        plugin.editIndividualGoal(goal.id, level, levelXp);
+        goal.createdAtEpochMillis = 1L;
+        before = System.currentTimeMillis();
+        plugin.editIndividualGoal(goal.id, 0, levelXp);
+        after = System.currentTimeMillis();
+        assertTrue(goal.createdAtEpochMillis >= before && goal.createdAtEpochMillis <= after);
+        assertEquals(goal.createdAtEpochMillis, plugin(client, config).individualGoals().get(0).createdAtEpochMillis);
     }
 
     @Test
