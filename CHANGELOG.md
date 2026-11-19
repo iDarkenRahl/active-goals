@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 — Unreleased
 
 - Apply external goal and preference changes to the active profile before further tracking updates.
 - Reload saved goals and preferences when returning to a profile, while preserving matching session statistics.
