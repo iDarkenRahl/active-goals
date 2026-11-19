@@ -420,26 +420,26 @@ public class ActiveGoalsPlugin extends Plugin
             String saved = configManager.getRSProfileConfiguration(CONFIG_GROUP, "individualGoals");
             loadedRSProfileKey = configManager.getRSProfileKey();
             GoalTracker cached = sessionGoals.get(sessionKey());
-            individualGoals = cached != null ? cached : GoalTracker.decode(saved);
-            if (cached == null)
+            individualGoals = GoalTracker.decode(saved);
+            String creationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
+            individualGoals.restoreCreationTimes(creationTimes);
+            String collapsed = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
+            individualGoals.restoreManualCollapses(collapsed);
+            individualGoals.restoreSessionStats(cached);
+            boolean removedCompleted = false;
+            for (GoalTracker.Goal goal : new ArrayList<>(individualGoals.goals()))
             {
-                String creationTimes = configManager.getRSProfileConfiguration(CONFIG_GROUP, "goalCreationTimes");
-                individualGoals.restoreCreationTimes(creationTimes);
-                boolean removedCompleted = false;
-                for (GoalTracker.Goal goal : new ArrayList<>(individualGoals.goals()))
-                    if (goal.completed)
-                    {
-                        individualGoals.remove(goal.id);
-                        removedCompleted = true;
-                    }
-                if (removedCompleted) saveCreationTimes();
-                String collapsed = configManager.getRSProfileConfiguration(CONFIG_GROUP, "manuallyCollapsedGoals");
-                individualGoals.restoreManualCollapses(collapsed);
-                if (collapsed != null && !collapsed.equals(individualGoals.encodeManualCollapses()))
-                    saveManualCollapses();
+                if (goal.completed && goal.completedAtNanos == 0)
+                {
+                    individualGoals.remove(goal.id);
+                    removedCompleted = true;
+                }
             }
+            if (removedCompleted) saveCreationTimes();
+            if (collapsed != null && !collapsed.equals(individualGoals.encodeManualCollapses()))
+                saveManualCollapses();
             individualGoalsLoaded = true;
-            saveIndividualGoals();
+            if (saved == null || !saved.equals(individualGoals.encode())) saveIndividualGoals();
         }
         sessionOverviewXp.clear();
         sessionOverviewXp.putAll(sessionXpByProfile.getOrDefault(sessionKey(), Collections.emptyMap()));

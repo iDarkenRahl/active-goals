@@ -15,13 +15,77 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void reloadUsesSavedGoalsAndMetadataWhilePreservingMatchingSessionStats() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.Map<String, String> saved = new java.util.HashMap<>();
+        saved.put("individualGoals", "keep,MINING,1000,2000,0,false;remove,FISHING,0,2000,0,false");
+        when(config.getRSProfileKey()).thenReturn("a");
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.get(call.getArgument(1)));
+        doAnswer(call -> { saved.put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "clientToolbar", mock(net.runelite.client.ui.ClientToolbar.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        plugin.onStatChanged(new StatChanged(Skill.MINING, 1100, 9, 9));
+        plugin.shutDown();
+
+        String updated = "new,FISHING,0,3000,0,false;keep,MINING,1000,3000,0,false";
+        saved.put("individualGoals", updated);
+        saved.put("manuallyCollapsedGoals", "keep");
+        saved.put("goalCreationTimes", "keep,123456");
+        plugin.startUp();
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1100);
+        plugin.onGameTick(new GameTick());
+        assertEquals(updated, saved.get("individualGoals"));
+        assertEquals(2, plugin.individualGoals().size());
+        GoalTracker.Goal added = plugin.individualGoals().get(0);
+        GoalTracker.Goal kept = plugin.individualGoals().get(1);
+        assertEquals("new", added.id);
+        assertEquals(0, added.sessionXp);
+        assertEquals("keep", kept.id);
+        assertEquals(3000, kept.targetXp);
+        assertEquals(100, kept.sessionXp);
+        assertEquals(100, kept.rateXp);
+        assertTrue(kept.manuallyCollapsed);
+        assertEquals(123456L, kept.createdAtEpochMillis);
+        assertEquals(100, plugin.getSessionOverviewTotalXp());
+
+        GameStateChanged logout = new GameStateChanged();
+        logout.setGameState(GameState.LOGIN_SCREEN);
+        plugin.onGameStateChanged(logout);
+        saved.put("individualGoals", "keep,FISHING,0,4000,0,false");
+        saved.put("manuallyCollapsedGoals", "");
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertEquals(1, plugin.individualGoals().size());
+        assertEquals(Skill.FISHING, plugin.individualGoals().get(0).skill);
+        assertEquals(0, plugin.individualGoals().get(0).sessionXp);
+        assertEquals("keep,FISHING,0,4000,0,false", saved.get("individualGoals"));
+    }
+
+    @Test
     void sessionTotalsSurviveLogoutProfileSwitchAndPluginToggle() throws Exception
     {
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
         java.util.concurrent.atomic.AtomicReference<String> profile = new java.util.concurrent.atomic.AtomicReference<>("a");
+        java.util.Map<String, java.util.Map<String, String>> saved = new java.util.HashMap<>();
         when(config.getRSProfileKey()).thenAnswer(call -> profile.get());
+        when(config.getRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString()))
+            .thenAnswer(call -> saved.getOrDefault(profile.get(), java.util.Map.of()).get(call.getArgument(1)));
+        doAnswer(call -> { saved.computeIfAbsent(profile.get(), ignored -> new java.util.HashMap<>())
+            .put(call.getArgument(1), call.getArgument(2)); return null; })
+            .when(config).setRSProfileConfiguration(eq(ActiveGoalsPlugin.CONFIG_GROUP), anyString(), anyString());
         when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
         when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
         inject(plugin, "client", client);
@@ -52,7 +116,7 @@ class ActiveGoalsTrackingTest
         plugin.onGameTick(new GameTick());
         plugin.onGameTick(new GameTick());
         assertEquals(100, plugin.getSessionOverviewTotalXp());
-        assertSame(goal, plugin.individualGoals().get(0));
+        goal = plugin.individualGoals().get(0);
         assertEquals(100, goal.sessionXp);
         assertTrue(plugin.getSessionSeconds() >= 5);
 
@@ -61,7 +125,7 @@ class ActiveGoalsTrackingTest
         when(client.getSkillExperience(Skill.MINING)).thenReturn(1500);
         plugin.onGameTick(new GameTick());
         assertEquals(100, plugin.getSessionOverviewTotalXp());
-        assertSame(goal, plugin.individualGoals().get(0));
+        goal = plugin.individualGoals().get(0);
         assertEquals(100, goal.sessionXp);
         assertTrue(plugin.getSessionSeconds() >= 5);
         plugin.onStatChanged(new StatChanged(Skill.MINING, 1550, 9, 9));
@@ -278,10 +342,11 @@ class ActiveGoalsTrackingTest
         plugin.onGameTick(new GameTick());
         assertEquals(1, plugin.individualGoals().size());
         assertEquals(2000, plugin.individualGoals().get(0).targetXp);
-        assertSame(original, plugin.individualGoals().get(0));
-        assertEquals(100, original.sessionXp);
-        assertEquals(100, original.rateXp);
-        assertEquals(100, original.samples.getFirst());
+        GoalTracker.Goal restored = plugin.individualGoals().get(0);
+        assertEquals(original.id, restored.id);
+        assertEquals(100, restored.sessionXp);
+        assertEquals(100, restored.rateXp);
+        assertEquals(100, restored.samples.getFirst());
     }
     @Test
     void logoutClearsDisplayedGoalsAndSessionButWorldHopDoesNot() throws Exception

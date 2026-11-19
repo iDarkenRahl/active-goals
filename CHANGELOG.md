@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reload saved goals and preferences when returning to a profile, while preserving matching session statistics.
 - Retain session XP and logged-in time for each profile until RuneLite closes or restarts.
 - Manually collapsed goal cards stay in place when training activity reorders other cards.
 

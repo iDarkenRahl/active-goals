@@ -37,6 +37,28 @@ final class GoalTracker
         return Collections.unmodifiableList(goals);
     }
 
+    void restoreSessionStats(GoalTracker previous)
+    {
+        if (previous == null) return;
+        Map<String, Goal> byId = new HashMap<>();
+        for (Goal goal : previous.goals) byId.put(goal.id, goal);
+        for (Goal goal : goals)
+        {
+            Goal old = byId.get(goal.id);
+            if (old == null || goal.skill == null || old.skill != goal.skill) continue;
+            goal.sessionXp = old.sessionXp;
+            goal.rateXp = old.rateXp;
+            goal.ratePeriodStartNanos = old.ratePeriodStartNanos;
+            goal.samples.addAll(old.samples);
+            if (!goal.manuallyCollapsed && !goal.completed) goal.expandedAtNanos = old.expandedAtNanos;
+            if (goal.completed && old.completed)
+            {
+                goal.completedAtNanos = old.completedAtNanos;
+                goal.expandedAtNanos = old.expandedAtNanos;
+            }
+        }
+    }
+
     void clear()
     {
         goals.clear();
