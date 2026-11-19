@@ -64,6 +64,7 @@ public class ActiveGoalsPlugin extends Plugin
     private GoalTracker individualGoals = new GoalTracker();
     private boolean individualGoalsLoaded;
     private String loadedRSProfileKey;
+    private volatile long profileSession;
     private final Map<String, GoalTracker> sessionGoals = new HashMap<>();
     private final Map<String, Long> goalsPausedAtNanos = new HashMap<>();
 
@@ -110,7 +111,19 @@ public class ActiveGoalsPlugin extends Plugin
 
     boolean goalDataReady()
     {
-        return individualGoalsLoaded && client.getGameState() == GameState.LOGGED_IN && xpBaselineTicks == 0;
+        String key = configManager.getRSProfileKey();
+        return individualGoalsLoaded && key != null && key.equals(loadedRSProfileKey)
+            && client.getGameState() == GameState.LOGGED_IN && xpBaselineTicks == 0;
+    }
+
+    long goalActionSession() { return profileSession; }
+
+    boolean goalProfileLoading() { return client.getGameState() == GameState.LOGGED_IN && !goalDataReady(); }
+
+    void requireGoalAction(long session)
+    {
+        if (session != profileSession) throw new IllegalStateException("Profile changed.");
+        if (!goalDataReady()) throw new IllegalStateException("Wait for your profile to load, then try again.");
     }
 
     void addIndividualGoal(Skill skill, int targetLevel, long targetXp)
@@ -210,6 +223,7 @@ public class ActiveGoalsPlugin extends Plugin
     @Override
     protected void startUp()
     {
+        profileSession++;
         sessionGoals.clear();
         goalsPausedAtNanos.clear();
         sessionStartNanos = 0;
@@ -235,6 +249,7 @@ public class ActiveGoalsPlugin extends Plugin
     @Override
     protected void shutDown()
     {
+        profileSession++;
         activeGoalsPanel.stop();
         if (navigationButton != null)
         {
@@ -259,6 +274,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (state == GameState.HOPPING || state == GameState.LOGIN_SCREEN) pauseIndividualGoals();
         if (state == GameState.LOGIN_SCREEN)
         {
+            profileSession++;
             individualGoals.clearTrainingActivity();
             individualGoals = new GoalTracker();
             individualGoalsLoaded = false;
@@ -285,8 +301,9 @@ public class ActiveGoalsPlugin extends Plugin
     public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
     {
         String key = configManager.getRSProfileKey();
-        if (key != null && loadedRSProfileKey != null && !key.equals(loadedRSProfileKey))
+        if (loadedRSProfileKey != null && !Objects.equals(key, loadedRSProfileKey))
         {
+            profileSession++;
             pauseIndividualGoals();
             individualGoals.clearTrainingActivity();
             individualGoals = new GoalTracker();
