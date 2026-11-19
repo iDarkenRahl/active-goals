@@ -15,6 +15,38 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsTrackingTest
 {
     @Test
+    void profileChangesInvalidatePendingActionsEvenAfterReturning() throws Exception
+    {
+        ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
+        Client client = mock(Client.class);
+        ConfigManager config = mock(ConfigManager.class);
+        java.util.concurrent.atomic.AtomicReference<String> profile = new java.util.concurrent.atomic.AtomicReference<>("a");
+        when(config.getRSProfileKey()).thenAnswer(call -> profile.get());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        inject(plugin, "client", client);
+        inject(plugin, "configManager", config);
+        inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
+        inject(plugin, "xpBaselineTicks", 1);
+        plugin.onGameTick(new GameTick());
+        long originalSession = plugin.goalActionSession();
+        plugin.requireGoalAction(originalSession);
+
+        profile.set(null);
+        assertFalse(plugin.goalDataReady());
+        assertThrows(IllegalStateException.class, () -> plugin.addIndividualGoal(Skill.MINING, 0, 2000));
+        plugin.onRuneScapeProfileChanged(null);
+        assertThrows(IllegalStateException.class, () -> plugin.requireGoalAction(originalSession));
+        profile.set("a");
+        plugin.onGameTick(new GameTick());
+        plugin.onGameTick(new GameTick());
+        assertTrue(plugin.goalDataReady());
+        assertThrows(IllegalStateException.class, () -> plugin.requireGoalAction(originalSession));
+        plugin.requireGoalAction(plugin.goalActionSession());
+        assertTrue(plugin.individualGoals().isEmpty());
+    }
+
+    @Test
     void savedManualCollapseRestoresAndExpansionEditAndDeletionClearIt() throws Exception
     {
         Client client = mock(Client.class);
@@ -164,6 +196,8 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        inject(plugin, "loadedRSProfileKey", "character-a");
         inject(plugin, "client", client);
         inject(plugin, "configManager", config);
         inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));
@@ -330,6 +364,8 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        inject(plugin, "loadedRSProfileKey", "character-a");
         GoalTracker tracker = new GoalTracker();
         GoalTracker.Goal edited = tracker.add(Skill.MINING, 1000, 2000, 1);
         GoalTracker.Goal other = tracker.add(Skill.MINING, 1000, 2000, 2);
@@ -371,6 +407,8 @@ class ActiveGoalsTrackingTest
         ActiveGoalsPlugin plugin = new ActiveGoalsPlugin();
         Client client = mock(Client.class);
         ConfigManager config = mock(ConfigManager.class);
+        when(config.getRSProfileKey()).thenReturn("character-a");
+        inject(plugin, "loadedRSProfileKey", "character-a");
         inject(plugin, "client", client);
         inject(plugin, "configManager", config);
         inject(plugin, "activeGoalsPanel", mock(ActiveGoalsPanel.class));

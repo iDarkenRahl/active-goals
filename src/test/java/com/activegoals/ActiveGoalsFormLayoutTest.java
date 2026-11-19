@@ -25,6 +25,70 @@ import static org.mockito.Mockito.*;
 class ActiveGoalsFormLayoutTest
 {
     @Test
+    void staleCreateFormCannotCreateGoalAfterProfileSwitch() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        Client client = mock(Client.class);
+        when(plugin.individualGoals()).thenReturn(new GoalTracker().goals());
+        when(plugin.getClient()).thenReturn(client);
+        when(plugin.goalDataReady()).thenReturn(true);
+        when(plugin.goalActionSession()).thenReturn(1L);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> button(panel, "Add Goal").doClick(0));
+            SwingUtilities.invokeAndWait(() -> {
+                descendants(panel, JComboBox.class).get(0).setSelectedItem(Skill.MINING);
+                descendants(panel, JTextField.class).get(0).setText("20");
+                when(plugin.goalActionSession()).thenReturn(2L);
+                doThrow(new IllegalStateException("Profile changed.")).when(plugin).requireGoalAction(1L);
+                button(panel, "Create Goal").doClick(0);
+            });
+            SwingUtilities.invokeAndWait(() -> { });
+            verify(plugin, never()).addIndividualGoal(any(), anyInt(), anyLong());
+            assertFalse(hasLabel(panel, "Profile changed."));
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
+    @Test
+    void staleGoalCardActionsDoNotMutateGoals() throws Exception
+    {
+        ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
+        Client client = mock(Client.class);
+        GoalTracker tracker = new GoalTracker();
+        GoalTracker.Goal goal = tracker.add(Skill.MINING, 1000, 2000, 1);
+        when(plugin.individualGoals()).thenReturn(tracker.goals());
+        when(plugin.getClient()).thenReturn(client);
+        when(client.getSkillExperience(Skill.MINING)).thenReturn(1000);
+        when(plugin.goalDataReady()).thenReturn(true);
+        doAnswer(call -> { call.<Runnable>getArgument(0).run(); return null; })
+            .when(plugin).runOnClientThread(any(Runnable.class));
+        doThrow(new IllegalStateException("Profile changed.")).when(plugin).requireGoalAction(anyLong());
+        ActiveGoalsPanel panel = new ActiveGoalsPanel(plugin, mock(SkillIconManager.class));
+        try
+        {
+            SwingUtilities.invokeAndWait(panel::start);
+            SwingUtilities.invokeAndWait(() -> button(panel, "Expand goal").doClick(0));
+            SwingUtilities.invokeAndWait(() -> button(panel, "Remove Goal").doClick(0));
+            SwingUtilities.invokeAndWait(() -> button(panel, "Remove Goal").doClick(0));
+            SwingUtilities.invokeAndWait(() -> { });
+            verify(plugin, never()).setIndividualGoalCollapsed(eq(goal.id), anyBoolean());
+            verify(plugin, never()).removeIndividualGoal(goal.id);
+        }
+        finally
+        {
+            SwingUtilities.invokeAndWait(panel::stop);
+        }
+    }
+
+    @Test
     void emptyStateTracksReadinessFormsAndGoalRecords() throws Exception
     {
         ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);
@@ -335,9 +399,9 @@ class ActiveGoalsFormLayoutTest
             {
                 ActiveGoalsPanel panel = new ActiveGoalsPanel(mock(ActiveGoalsPlugin.class), mock(SkillIconManager.class));
                 Class<?> goal = Class.forName(ActiveGoalsPanel.class.getName() + "$GoalSnapshot");
-                Method method = ActiveGoalsPanel.class.getDeclaredMethod("createGoalForm", goal);
+                Method method = ActiveGoalsPanel.class.getDeclaredMethod("createGoalForm", goal, long.class);
                 method.setAccessible(true);
-                JPanel form = (JPanel) method.invoke(panel, (Object) null);
+                JPanel form = (JPanel) method.invoke(panel, null, 0L);
                 assertEquals(Component.LEFT_ALIGNMENT, form.getAlignmentX());
                 for (Component child : form.getComponents())
                 {

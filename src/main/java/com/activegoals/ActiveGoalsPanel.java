@@ -178,6 +178,8 @@ public class ActiveGoalsPanel extends PluginPanel
             long sessionOverviewXp = plugin.getSessionOverviewTotalXp();
             long sessionSeconds = plugin.getSessionSeconds();
             boolean ready = plugin.goalDataReady();
+            boolean profileLoading = plugin.goalProfileLoading();
+            long actionSession = plugin.goalActionSession();
             SwingUtilities.invokeLater(() ->
             {
                 if (!running || generation != refreshGeneration) return;
@@ -187,22 +189,27 @@ public class ActiveGoalsPanel extends PluginPanel
                     return;
                 }
                 refreshPending = false;
-                renderDashboard(goals, sessionOverviewXp, sessionSeconds, ready, noGoals);
+                renderDashboard(goals, sessionOverviewXp, sessionSeconds, ready, noGoals, actionSession, profileLoading);
             });
         });
     }
 
-    private void applyPanelChange(Runnable action)
+    private void applyPanelChange(long actionSession, Runnable action)
     {
         plugin.runOnClientThread(() ->
         {
-            plugin.expireGoalExpansions(plugin.goalClockNanos());
-            action.run();
+            try
+            {
+                plugin.requireGoalAction(actionSession);
+                plugin.expireGoalExpansions(plugin.goalClockNanos());
+                action.run();
+            }
+            catch (IllegalStateException ignored) { }
             requestRefresh();
         });
     }
 
-    private void renderDashboard(List<GoalSnapshot> goals, long sessionOverviewXp, long seconds, boolean ready, boolean noGoals)
+    private void renderDashboard(List<GoalSnapshot> goals, long sessionOverviewXp, long seconds, boolean ready, boolean noGoals, long actionSession, boolean profileLoading)
     {
         // The hovered goal survives card reconstruction; its new bar is bound below.
         hoveredProgressBar = null;
@@ -221,13 +228,13 @@ public class ActiveGoalsPanel extends PluginPanel
         add.setFocusPainted(false);
         add.setToolTipText(ready ? "Add Goal" : "Log in and wait for skill data to load");
         add.setEnabled(ready && goalForm == null && confirmingRemovalId == null);
-        add.addActionListener(e -> openGoalForm(null));
+        add.addActionListener(e -> openGoalForm(null, actionSession));
         keepWhilePressed(add);
         goalHeader.add(add, BorderLayout.EAST);
         int index = 0;
         content.add(fullWidth(goalHeader), index++);
         if (!ready)
-            content.add(label("Log in to add goals.", MUTED, Font.PLAIN), index++);
+            content.add(label(profileLoading ? "Wait for your profile to load, then try again." : "Log in to add goals.", MUTED, Font.PLAIN), index++);
         else if (noGoals && goalForm == null)
             content.add(label("No goals yet. Select + to add one.", MUTED, Font.PLAIN), index++);
         content.add(Box.createVerticalStrut(8), index++);
@@ -239,7 +246,7 @@ public class ActiveGoalsPanel extends PluginPanel
         }
         for (GoalSnapshot goal : goals)
         {
-            JPanel card = goalCard(goal, ready);
+            JPanel card = goalCard(goal, ready, actionSession);
             content.add(card);
             if (goal.id.equals(revealGoalId)) reveal = card;
             content.add(Box.createVerticalStrut(9));
@@ -275,7 +282,7 @@ public class ActiveGoalsPanel extends PluginPanel
         }
     }
 
-    private JPanel goalCard(GoalSnapshot goal, boolean ready)
+    private JPanel goalCard(GoalSnapshot goal, boolean ready, long actionSession)
     {
         boolean confirming = goal.id.equals(confirmingRemovalId);
         JPanel card = new JPanel();
@@ -296,7 +303,7 @@ public class ActiveGoalsPanel extends PluginPanel
             delete.getAccessibleContext().setAccessibleName("Delete");
             delete.setMargin(new Insets(0, 5, 0, 5));
             delete.setEnabled(ready);
-            delete.addActionListener(e -> applyPanelChange(() -> plugin.removeIndividualGoal(goal.id)));
+            delete.addActionListener(e -> applyPanelChange(actionSession, () -> plugin.removeIndividualGoal(goal.id)));
             keepWhilePressed(delete);
             row.add(delete, BorderLayout.EAST);
             card.add(fullWidth(row));
@@ -323,7 +330,7 @@ public class ActiveGoalsPanel extends PluginPanel
             edit.getAccessibleContext().setAccessibleName("Edit Goal");
             edit.setMargin(new Insets(0, 5, 0, 5));
             edit.setEnabled(ready && goalForm == null && confirmingRemovalId == null);
-            edit.addActionListener(e -> openGoalForm(goal));
+            edit.addActionListener(e -> openGoalForm(goal, actionSession));
             keepWhilePressed(edit);
             controls.add(edit);
         }
@@ -340,7 +347,7 @@ public class ActiveGoalsPanel extends PluginPanel
         collapse.getAccessibleContext().setAccessibleName(goal.collapsed ? "Expand goal" : "Collapse goal");
         collapse.setMargin(new Insets(0, 4, 0, 4));
         collapse.setEnabled(!confirming);
-        collapse.addActionListener(e -> applyPanelChange(() ->
+        collapse.addActionListener(e -> applyPanelChange(actionSession, () ->
             plugin.setIndividualGoalCollapsed(goal.id, !goal.collapsed)));
         keepWhilePressed(collapse);
         controls.add(collapse);
@@ -363,7 +370,7 @@ public class ActiveGoalsPanel extends PluginPanel
             remove.addActionListener(e ->
             {
                 confirmingRemovalId = null;
-                applyPanelChange(() -> plugin.removeIndividualGoal(goal.id));
+                applyPanelChange(actionSession, () -> plugin.removeIndividualGoal(goal.id));
             });
             JButton cancel = new JButton("Cancel");
             cancel.addActionListener(e -> { confirmingRemovalId = null; requestRefresh(); });
@@ -574,7 +581,7 @@ public class ActiveGoalsPanel extends PluginPanel
         {
             long xp = Long.parseLong(value.trim().replace(",", ""));
             if (xp < 1 || xp > 200_000_000L) throw new NumberFormatException();
-            applyPanelChange(() ->
+            applyPanelChange(plugin.goalActionSession(), () ->
             {
                 try
                 {
@@ -612,10 +619,10 @@ public class ActiveGoalsPanel extends PluginPanel
         if (chosen != null) plugin.showLevelTargetDialog(chosen.skill);
     }
 
-    private void openGoalForm(GoalSnapshot goal)
+    private void openGoalForm(GoalSnapshot goal, long actionSession)
     {
         if (goalForm != null || confirmingRemovalId != null) return;
-        goalForm = createGoalForm(goal);
+        goalForm = createGoalForm(goal, actionSession);
         requestRefresh();
     }
 
@@ -625,7 +632,7 @@ public class ActiveGoalsPanel extends PluginPanel
         requestRefresh();
     }
 
-    private JPanel createGoalForm(GoalSnapshot goal)
+    private JPanel createGoalForm(GoalSnapshot goal, long actionSession)
     {
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
@@ -710,6 +717,7 @@ public class ActiveGoalsPanel extends PluginPanel
             {
                 try
                 {
+                    plugin.requireGoalAction(actionSession);
                     if (goal == null) plugin.addIndividualGoal(skill, targetLevel, targetXp);
                     else plugin.editIndividualGoal(goal.id, targetLevel, targetXp);
                     SwingUtilities.invokeLater(() ->
@@ -723,6 +731,7 @@ public class ActiveGoalsPanel extends PluginPanel
                 {
                     SwingUtilities.invokeLater(() ->
                     {
+                        if (goalForm != form || actionSession != plugin.goalActionSession()) return;
                         error.setText(ex.getMessage());
                         submit.setEnabled(true);
                         cancel.setEnabled(true);

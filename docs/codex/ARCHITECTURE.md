@@ -13,12 +13,14 @@ Verified against the local checkout on 2026-11-18; this describes code and confi
 - `GoalTracker.java` owns individual goal records, encoding/decoding, metadata, activity and card state. `ActiveGoalsPlugin.java` manages profile loading, XP baselines, events, tracking and persistence. `GLOSSARY.md` defines the project language.
 - Relevant decisions: [character- and game-mode-scoped goals](../adr/0001-character-scoped-goals.md) and [independent goal records](../adr/0002-independent-goals.md).
 - Login/profile changes reset or reload tracking context; stat changes feed XP tracking and game ticks handle timed state. See the event handlers in `ActiveGoalsPlugin.java` for exact conditions.
+- Goal actions are tied to the profile session shown by the sidebar. A logout or profile-key change invalidates queued actions, including when the original profile is later reloaded; mutations also require a matching, loaded profile key. The saved-goal format is unchanged.
 
 ## UI components and threading
 - `ActiveGoalsPanel.java` implements the Swing sidebar, snapshots and refreshes; `ActiveGoalsDialogs.java` supplies dialogs, and `ActiveGoalsConfig.java` declares settings. Panel refresh requests use the client thread for snapshots and Swing EDT dispatch for UI updates (`ActiveGoalsPanel.java`, `ActiveGoalsPlugin.runOnClientThread`). This inventory does not certify every thread path.
 
 ## Configuration, storage, backup, migrations
 - The `activegoals` configuration group stores profile-scoped `individualGoals`, `goalCreationTimes`, and `manuallyCollapsedGoals` via RuneLite `ConfigManager` (`ActiveGoalsPlugin.java`). Goal serialization and malformed-record handling are in `GoalTracker.java`; manual-collapse choices and creation times are stored separately ([ADR 0005](../adr/0005-store-manual-collapse-separately.md), [ADR 0006](../adr/0006-store-goal-creation-times-separately.md)).
+- Intentional corrupted-save behavior: unreadable goal records are replaced by corrupted-save placeholders and the original unreadable serialized contents are not retained when the profile is saved. The user confirmed this behavior is intended; do not report it as a defect in future reviews. The placeholder remains until removed by the player.
 - The plugin also contains global settings and legacy goal access/migration code. A source search found no call site for the private `loadIndividualGoals` legacy loader; this alone does not establish compatibility of every legacy path. No dedicated backup/export implementation was identified in the source inventory; RuneLite's own backup behavior is unverified.
 
 ## Tests, CI, release process
