@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.3 — Unreleased
+## Unreleased
+
+- Manually collapsed goal cards are no longer promoted by XP, while other active cards can move above them.
+
+## 1.0.3
 
 - Apply external goal and preference changes to the active profile before further tracking updates.
 - Reload saved goals and preferences when returning to a profile, while preserving matching session statistics.

@@ -215,14 +215,13 @@ final class GoalTracker
         List<Goal> remaining = new ArrayList<>();
         for (Goal goal : goals)
         {
-            if (goal.manuallyCollapsed) continue;
-            if (goal.skill == skill && !goal.completed) moved.add(goal);
+            if (goal.skill == skill && !goal.completed && !goal.manuallyCollapsed) moved.add(goal);
             else remaining.add(goal);
         }
-        moved.addAll(remaining);
-        int next = 0;
-        for (int i = 0; i < goals.size(); i++)
-            if (!goals.get(i).manuallyCollapsed) goals.set(i, moved.get(next++));
+        if (moved.isEmpty()) return;
+        goals.clear();
+        goals.addAll(moved);
+        goals.addAll(remaining);
     }
 
     boolean gain(Skill skill, int currentXp, int gain, long now)
