@@ -1,6 +1,7 @@
 # Active Goals — Current State
 
 - Last verified: 2026-11-18, branch `main`, HEAD `67329a7`; untracked `.codex/`, `AGENTS.md`, `GLOSSARY.md` and `docs/` were already present before the dashboard work.
+- Local unreleased work: Construction goals can estimate Mahogany Homes contracts remaining using observed contracts by tier, with an inactivity timeout. In-client message detection, completion XP timing, and equipment changes remain unverified; unrelated XP may contaminate samples.
 - Local unreleased work: incomplete level goal cards show the current XP-derived level in a tooltip over the goal range, including in collapsed cards and deletion confirmation; in-client display remains unverified.
 - Local unreleased work: Agility goals can estimate whole laps after recognizing a course completion, returning to Actions Left after a configurable inactivity timeout. In-client course recognition and UI behavior remain unverified.
 - Current work: Persistent Project Memory v1.4 documentation installation. The architecture inventory reflects inspected local files; existing policy, agents, glossary, changelog and ADR history are preserved.

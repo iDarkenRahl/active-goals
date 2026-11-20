@@ -20,7 +20,7 @@ class ActiveGoalsConfigTest
             ConfigItem item = method.getAnnotation(ConfigItem.class);
             if (item != null) keys.add(item.keyName());
         }
-        assertEquals(Set.of("goalCardExpansionSeconds", "goalOrderingActivitySeconds", "agilityLapTimeoutSeconds"), keys);
+        assertEquals(Set.of("goalCardExpansionSeconds", "goalOrderingActivitySeconds", "agilityLapTimeoutSeconds", "homesTimeoutSeconds"), keys);
         assertEquals(ActiveGoalsConfig.COLLAPSE_SECTION,
             ActiveGoalsConfig.class.getMethod("goalCardExpansionSeconds").getAnnotation(ConfigItem.class).section());
         Range range = ActiveGoalsConfig.class.getMethod("goalCardExpansionSeconds").getAnnotation(Range.class);
@@ -36,5 +36,10 @@ class ActiveGoalsConfigTest
         Range agilityRange = ActiveGoalsConfig.class.getMethod("agilityLapTimeoutSeconds").getAnnotation(Range.class);
         assertEquals(1, agilityRange.min());
         assertEquals(86400, agilityRange.max());
+        assertEquals(ActiveGoalsConfig.HOMES_SECTION,
+            ActiveGoalsConfig.class.getMethod("homesTimeoutSeconds").getAnnotation(ConfigItem.class).section());
+        Range homesRange = ActiveGoalsConfig.class.getMethod("homesTimeoutSeconds").getAnnotation(Range.class);
+        assertEquals(1, homesRange.min());
+        assertEquals(86400, homesRange.max());
     }
 }

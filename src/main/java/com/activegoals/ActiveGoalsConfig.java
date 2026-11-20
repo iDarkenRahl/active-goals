@@ -27,6 +27,10 @@ public interface ActiveGoalsConfig extends Config
         position = 2, closedByDefault = false)
     String AGILITY_SECTION = "agility";
 
+    @ConfigSection(name = "Mahogany Homes timeout", description = "Time before an inactive contract estimate expires.",
+        position = 3, closedByDefault = false)
+    String HOMES_SECTION = "homes";
+
     @Range(min = 1, max = 86400)
     @ConfigItem(keyName = "goalCardExpansionSeconds", name = "Seconds", section = COLLAPSE_SECTION,
         description = "Seconds a goal stays expanded after activity.", position = 0)
@@ -41,4 +45,9 @@ public interface ActiveGoalsConfig extends Config
     @ConfigItem(keyName = "agilityLapTimeoutSeconds", name = "Seconds", section = AGILITY_SECTION,
         description = "Seconds without a completed lap before returning to Actions Left.", position = 0)
     default int agilityLapTimeoutSeconds() { return 300; }
+
+    @Range(min = 1, max = 86400)
+    @ConfigItem(keyName = "homesTimeoutSeconds", name = "Seconds", section = HOMES_SECTION,
+        description = "Seconds without a completed contract before returning to Actions Left.", position = 0)
+    default int homesTimeoutSeconds() { return 300; }
 }
