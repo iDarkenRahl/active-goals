@@ -74,7 +74,7 @@ A goal card showing its compact header, goal endpoints, and progress bar without
 _Avoid_: Minimized goal
 
 **Manually Collapsed Goal Card**:
-A goal card the player has chosen to keep collapsed until they expand it or the goal is edited or completed. It stays in its current position during training-based card reordering.
+A goal card the player has chosen to keep collapsed until they expand it or the goal is edited or completed. Training in its skill does not promote it, but other cards can move above it.
 
 **Expanded Goal Card**:
 A goal card showing its target, progress, controls, and detailed statistics.
