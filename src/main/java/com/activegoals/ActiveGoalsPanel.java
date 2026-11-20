@@ -43,6 +43,10 @@ public class ActiveGoalsPanel extends PluginPanel
     private final JToolTip progressTooltip = new JToolTip();
     private String hoveredProgressGoalId;
     private JProgressBar hoveredProgressBar;
+    private final Timer levelTooltipDelay;
+    private final JToolTip levelTooltip = new JToolTip();
+    private String hoveredLevelGoalId;
+    private JLabel hoveredLevelLabel;
     private boolean running;
     // Keep a pressed button in place until the current click completes.
     private final Set<JButton> pressedButtons = new HashSet<>();
@@ -70,7 +74,7 @@ public class ActiveGoalsPanel extends PluginPanel
         scroll.getVerticalScrollBar().setUI(new ActiveGoalsScrollBarUI());
         scroll.getVerticalScrollBar().setPreferredSize(new Dimension(8, 0));
         scroll.getViewport().setBackground(BG);
-        scroll.getViewport().addChangeListener(e -> positionProgressTooltip());
+        scroll.getViewport().addChangeListener(e -> { positionProgressTooltip(); positionLevelTooltip(); });
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
@@ -85,14 +89,19 @@ public class ActiveGoalsPanel extends PluginPanel
         refreshTimer = new Timer(1500, e -> requestRefresh());
         progressTooltipDelay = new Timer(ToolTipManager.sharedInstance().getInitialDelay(), e -> showProgressTooltip());
         progressTooltipDelay.setRepeats(false);
+        levelTooltipDelay = new Timer(ToolTipManager.sharedInstance().getInitialDelay(), e -> showLevelTooltip());
+        levelTooltipDelay.setRepeats(false);
         addComponentListener(new ComponentAdapter()
         {
-            @Override public void componentResized(ComponentEvent e) { positionProgressTooltip(); }
+            @Override public void componentResized(ComponentEvent e) { positionProgressTooltip(); positionLevelTooltip(); }
         });
         addHierarchyListener(e ->
         {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !isShowing())
+            {
                 hideProgressTooltip();
+                hideLevelTooltip();
+            }
         });
     }
 
@@ -121,8 +130,9 @@ public class ActiveGoalsPanel extends PluginPanel
         revealGoalId = null;
         confirmingRemovalId = null;
         refreshTimer.stop();
-        if (SwingUtilities.isEventDispatchThread()) hideProgressTooltip();
-        else SwingUtilities.invokeLater(this::hideProgressTooltip);
+        Runnable hideTooltips = () -> { hideProgressTooltip(); hideLevelTooltip(); };
+        if (SwingUtilities.isEventDispatchThread()) hideTooltips.run();
+        else SwingUtilities.invokeLater(hideTooltips);
     }
 
     void clearGoalInteractionState()
@@ -216,6 +226,7 @@ public class ActiveGoalsPanel extends PluginPanel
     {
         // The hovered goal survives card reconstruction; its new bar is bound below.
         hoveredProgressBar = null;
+        hoveredLevelLabel = null;
         if (confirmingRemovalId != null && goals.stream().noneMatch(goal -> goal.id.equals(confirmingRemovalId)))
             confirmingRemovalId = null;
         JPanel reveal = goalForm != null && goalForm.getParent() == null ? goalForm : null;
@@ -274,6 +285,8 @@ public class ActiveGoalsPanel extends PluginPanel
         {
             if (hoveredProgressGoalId != null && hoveredProgressBar == null) hideProgressTooltip();
             else positionProgressTooltip();
+            if (hoveredLevelGoalId != null && hoveredLevelLabel == null) hideLevelTooltip();
+            else positionLevelTooltip();
         });
         if (reveal != null)
         {
@@ -361,8 +374,8 @@ public class ActiveGoalsPanel extends PluginPanel
         {
             card.add(Box.createVerticalStrut(6));
             String target = goal.hasCustomXpTarget ? "Xp Target: " + fmt(goal.targetXp)
-                : "Level: " + goal.startingLevel + " → " + goal.targetLevel;
-            card.add(label(target, GOLD, Font.PLAIN));
+                : levelGoalText(goal);
+            card.add(goalTargetLabel(goal, target));
             card.add(Box.createVerticalStrut(7));
             card.add(label("Remove this goal?", TEXT, Font.PLAIN));
             card.add(Box.createVerticalStrut(7));
@@ -391,8 +404,8 @@ public class ActiveGoalsPanel extends PluginPanel
             card.add(Box.createVerticalStrut(6));
             String endpoints = goal.hasCustomXpTarget
                 ? "Xp: " + fmt(goal.startingXp) + " → " + fmt(goal.targetXp)
-                : "Level: " + goal.startingLevel + " → " + goal.targetLevel;
-            card.add(label(endpoints, GOLD, Font.PLAIN));
+                : levelGoalText(goal);
+            card.add(goalTargetLabel(goal, endpoints));
             card.add(Box.createVerticalStrut(5));
             card.add(infoRow("Goal Progress:", String.format("%.1f%%", goal.progress * 100)));
             card.add(Box.createVerticalStrut(5));
@@ -402,8 +415,8 @@ public class ActiveGoalsPanel extends PluginPanel
             return card;
         }
         card.add(Box.createVerticalStrut(6));
-        card.add(label(goal.hasCustomXpTarget ? "Xp Target: " + fmt(goal.targetXp) :
-            "Level: " + goal.startingLevel + " → " + goal.targetLevel, GOLD, Font.PLAIN));
+        card.add(goalTargetLabel(goal, goal.hasCustomXpTarget ? "Xp Target: " + fmt(goal.targetXp) :
+            levelGoalText(goal)));
         card.add(Box.createVerticalStrut(4));
         card.add(infoRow("Goal Progress:", String.format("%.1f%%", goal.progress * 100)));
         card.add(Box.createVerticalStrut(5));
@@ -433,6 +446,91 @@ public class ActiveGoalsPanel extends PluginPanel
         return card;
     }
 
+    private JLabel goalTargetLabel(GoalSnapshot goal, String text)
+    {
+        JLabel result = label(text, GOLD, Font.PLAIN);
+        if (goal.hasCustomXpTarget || goal.completed) return result;
+        String tip = "Current Level: " + ActiveGoalsPlugin.virtualLevelForXp(Math.max(0, goal.currentXp));
+        result.setToolTipText(tip);
+        result.getAccessibleContext().setAccessibleDescription(tip);
+        // Rebind the persistent overlay when periodic refreshes rebuild the label.
+        ToolTipManager.sharedInstance().unregisterComponent(result);
+        if (goal.id.equals(hoveredLevelGoalId))
+        {
+            hoveredLevelLabel = result;
+            levelTooltip.setComponent(result);
+            levelTooltip.setTipText(tip);
+        }
+        result.addMouseListener(new MouseAdapter()
+        {
+            @Override public void mouseEntered(MouseEvent e)
+            {
+                if (!goal.id.equals(hoveredLevelGoalId))
+                {
+                    hideProgressTooltip();
+                    hideLevelTooltip();
+                    hoveredLevelGoalId = goal.id;
+                    hoveredLevelLabel = result;
+                    levelTooltipDelay.restart();
+                }
+            }
+
+            @Override public void mouseExited(MouseEvent e)
+            {
+                if (hoveredLevelLabel == result) hideLevelTooltip();
+            }
+        });
+        return result;
+    }
+
+    private void showLevelTooltip()
+    {
+        if (!running || hoveredLevelLabel == null || !hoveredLevelLabel.isShowing()) return;
+        JRootPane root = SwingUtilities.getRootPane(hoveredLevelLabel);
+        if (root == null) return;
+        levelTooltip.setComponent(hoveredLevelLabel);
+        levelTooltip.setTipText(hoveredLevelLabel.getToolTipText());
+        root.getLayeredPane().add(levelTooltip, JLayeredPane.POPUP_LAYER);
+        levelTooltip.setVisible(true);
+        positionLevelTooltip();
+    }
+
+    private void positionLevelTooltip()
+    {
+        if (hoveredLevelLabel == null || !hoveredLevelLabel.isShowing() || !levelTooltip.isVisible()
+            || !(levelTooltip.getParent() instanceof JLayeredPane)) return;
+        JLayeredPane layer = (JLayeredPane) levelTooltip.getParent();
+        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, hoveredLevelLabel);
+        if (viewport == null || !viewport.getViewRect().intersects(
+            SwingUtilities.convertRectangle(hoveredLevelLabel.getParent(), hoveredLevelLabel.getBounds(), viewport.getView())))
+        {
+            hideLevelTooltip();
+            return;
+        }
+        Rectangle bounds = SwingUtilities.convertRectangle(hoveredLevelLabel.getParent(), hoveredLevelLabel.getBounds(), layer);
+        Dimension tip = levelTooltip.getPreferredSize();
+        int x = Math.max(0, Math.min(layer.getWidth() - tip.width, bounds.x + (bounds.width - tip.width) / 2));
+        int y = bounds.y + bounds.height;
+        if (y + tip.height > layer.getHeight()) y = bounds.y - tip.height;
+        y = Math.max(0, Math.min(layer.getHeight() - tip.height, y));
+        levelTooltip.setBounds(x, y, tip.width, tip.height);
+        levelTooltip.repaint();
+    }
+
+    private void hideLevelTooltip()
+    {
+        levelTooltipDelay.stop();
+        hoveredLevelGoalId = null;
+        hoveredLevelLabel = null;
+        levelTooltip.setVisible(false);
+        Container parent = levelTooltip.getParent();
+        if (parent != null)
+        {
+            parent.remove(levelTooltip);
+            parent.repaint();
+        }
+    }
+
     /** A compact, width-constrained statistics row. */
     private JComponent goalProgressBar(GoalSnapshot goal)
     {
@@ -455,6 +553,7 @@ public class ActiveGoalsPanel extends PluginPanel
             {
                 if (!goal.id.equals(hoveredProgressGoalId))
                 {
+                    hideLevelTooltip();
                     hideProgressTooltip();
                     hoveredProgressGoalId = goal.id;
                     hoveredProgressBar = bar;
@@ -785,6 +884,11 @@ public class ActiveGoalsPanel extends PluginPanel
         choices.setAlignmentX(Component.LEFT_ALIGNMENT);
         choices.setMaximumSize(new Dimension(Integer.MAX_VALUE, choices.getPreferredSize().height));
         return choices;
+    }
+
+    private static String levelGoalText(GoalSnapshot goal)
+    {
+        return "Level: " + goal.startingLevel + " → " + goal.targetLevel;
     }
 
     private static String currentLevelText(int xp)

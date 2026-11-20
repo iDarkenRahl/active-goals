@@ -32,6 +32,9 @@ The skill's XP when a goal is created, representing 0% progress toward that goal
 **Goal Starting Level**:
 The level derived from a goal's starting XP; it remains fixed as the character gains XP.
 
+**Current Skill Level**:
+The level derived from a character's current XP in a skill, including virtual levels above 99. Temporary boosts and drains do not change it.
+
 **Goal Percentage**:
 Progress from a goal's starting XP to its target XP, expressed from 0% to 100%.
 _Avoid_: Goal Progress in internal domain terminology; it is acceptable as a player-facing UI label.
