@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.VarbitChanged;
 import javax.inject.Inject;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -52,6 +53,7 @@ public class ActiveGoalsPlugin extends Plugin
     private static final long NANOS_PER_SECOND = 1_000_000_000L;
 
     private final Map<Skill, Integer> lastXp = new EnumMap<>(Skill.class);
+    private final AgilityCourseTracker agilityCourse = new AgilityCourseTracker();
     private int xpBaselineTicks;
     private Long trackedAccountHash;
     private final Map<Skill, Long> firstGainNanos = new EnumMap<>(Skill.class);
@@ -356,6 +358,7 @@ public class ActiveGoalsPlugin extends Plugin
     @Override
     protected synchronized void startUp()
     {
+        agilityCourse.reset();
         profileSession++;
         sessionStartNanos = 0;
         lastXp.clear();
@@ -382,6 +385,7 @@ public class ActiveGoalsPlugin extends Plugin
     @Override
     protected synchronized void shutDown()
     {
+        agilityCourse.reset();
         profileSession++;
         pauseSession(System.nanoTime());
         pauseIndividualGoals();
@@ -477,6 +481,8 @@ public class ActiveGoalsPlugin extends Plugin
     public synchronized void onGameStateChanged(GameStateChanged event)
     {
         GameState state = event.getGameState();
+        if (state == GameState.LOGGING_IN || state == GameState.HOPPING || state == GameState.LOGIN_SCREEN)
+            agilityCourse.reset();
         if (state != GameState.LOGGED_IN) pauseSession(System.nanoTime());
         else if (individualGoalsLoaded && Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey()))
             resumeSession(System.nanoTime());
@@ -512,6 +518,7 @@ public class ActiveGoalsPlugin extends Plugin
         String key = configManager.getRSProfileKey();
         if (loadedRSProfileKey != null && !Objects.equals(key, loadedRSProfileKey))
         {
+            agilityCourse.reset();
             profileSession++;
             pauseSession(System.nanoTime());
             pauseIndividualGoals();
@@ -577,6 +584,7 @@ public class ActiveGoalsPlugin extends Plugin
         long accountHash = client.getAccountHash();
         if (trackedAccountHash != null && trackedAccountHash != accountHash)
         {
+            agilityCourse.reset();
             pauseSession(System.nanoTime());
             pauseIndividualGoals();
             individualGoals.clearTrainingActivity();
@@ -711,6 +719,11 @@ public class ActiveGoalsPlugin extends Plugin
         {
             int gain = xp - previous;
             long now = System.nanoTime();
+            if (skill == Skill.AGILITY && individualGoalsLoaded
+                && client.getGameState() == GameState.LOGGED_IN
+                && Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())
+                && loadedRSProfileKey != null && client.getLocalPlayer() != null)
+                agilityCourse.observeXp(client.getLocalPlayer().getWorldLocation(), now);
             sessionOverviewXp.merge(skill, (long) gain, Long::sum);
             boolean hasIndividualGoal = individualGoals.goals().stream()
                 .anyMatch(goal -> goal.skill == skill && !goal.completed);
@@ -741,6 +754,20 @@ public class ActiveGoalsPlugin extends Plugin
         activeGoalsPanel.requestRefresh();
     }
 
+    @Subscribe
+    public synchronized void onVarbitChanged(VarbitChanged event)
+    {
+        if (xpBaselineTicks != 0 || client.getGameState() != GameState.LOGGED_IN
+            || !individualGoalsLoaded || loadedRSProfileKey == null
+            || !Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey())) return;
+        agilityCourse.observeVarbit(event.getVarbitId(), event.getValue(), System.nanoTime());
+    }
+
+    double agilityXpPerLap()
+    {
+        return agilityCourse.xpPerLap(client, System.nanoTime(), getAgilityLapTimeoutSeconds());
+    }
+
     int getIntSetting(String key, int fallback)
     {
         String value = configManager.getConfiguration(CONFIG_GROUP, key);
@@ -768,6 +795,12 @@ public class ActiveGoalsPlugin extends Plugin
     int getGoalOrderingActivitySeconds()
     {
         int seconds = getIntSetting("goalOrderingActivitySeconds", 300);
+        return Math.max(1, Math.min(86_400, seconds));
+    }
+
+    int getAgilityLapTimeoutSeconds()
+    {
+        int seconds = getIntSetting("agilityLapTimeoutSeconds", 300);
         return Math.max(1, Math.min(86_400, seconds));
     }
 

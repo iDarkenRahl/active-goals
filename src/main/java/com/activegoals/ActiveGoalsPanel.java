@@ -158,7 +158,7 @@ public class ActiveGoalsPanel extends PluginPanel
                 if (record.skill == null)
                 {
                     goals.add(new GoalSnapshot(record.id, null, 0, 0, false, 0, 0, 0,
-                        0, 0, 0, 0, 0, false, false, null));
+                        0, 0, 0, 0, 0, false, false, false, null));
                     continue;
                 }
                 Skill skill = record.skill;
@@ -173,7 +173,10 @@ public class ActiveGoalsPanel extends PluginPanel
                 long rate = record.ratePeriodStartNanos == 0 ? 0 : Math.round(record.rateXp * 3600.0 / Math.max(60.0, (rateEnd - record.ratePeriodStartNanos) / 1e9));
                 long gained = record.sessionXp;
                 boolean collapsed = record.expandedAtNanos == 0 || !ActiveGoalsPlugin.isWithinGoalCardExpansionWindow(record.expandedAtNanos, now, plugin.getGoalCardExpansionSeconds());
-                goals.add(new GoalSnapshot(record.id, skill, target, targetXp, target == 0, xp, record.startXp, record.startingLevel(), remaining, progress, rate, gained, ActiveGoalsPlugin.estimateActionsLeft(remaining, record.samples), collapsed, record.completed, record.createdAtEpochMillis));
+                double lapXp = skill == Skill.AGILITY ? plugin.agilityXpPerLap() : -1;
+                boolean laps = lapXp > 0;
+                long estimate = laps ? (long) Math.ceil(remaining / lapXp) : ActiveGoalsPlugin.estimateActionsLeft(remaining, record.samples);
+                goals.add(new GoalSnapshot(record.id, skill, target, targetXp, target == 0, xp, record.startXp, record.startingLevel(), remaining, progress, rate, gained, estimate, laps, collapsed, record.completed, record.createdAtEpochMillis));
             }
             long sessionOverviewXp = plugin.getSessionOverviewTotalXp();
             long sessionSeconds = plugin.getSessionSeconds();
@@ -419,7 +422,7 @@ public class ActiveGoalsPanel extends PluginPanel
         card.add(Box.createVerticalStrut(5));
         card.add(infoRow("Xp/hour:", goal.xpPerHour > 0 ? fmt(goal.xpPerHour) : "Waiting for Xp"));
         card.add(Box.createVerticalStrut(5));
-        card.add(infoRow("Actions Left:", goal.actionsLeft < 0 ? "Waiting for Xp" : fmt(goal.actionsLeft)));
+        card.add(infoRow(goal.laps ? "Laps Left:" : "Actions Left:", goal.actionsLeft < 0 ? "Waiting for Xp" : fmt(goal.actionsLeft)));
         card.add(Box.createVerticalStrut(5));
         card.add(infoRow("Session Xp:", fmt(goal.goalCardSessionXp)));
         card.add(Box.createVerticalStrut(5));
@@ -987,13 +990,14 @@ public class ActiveGoalsPanel extends PluginPanel
         final long xpPerHour;
         final long goalCardSessionXp;
         final long actionsLeft;
+        final boolean laps;
         final boolean collapsed;
         final boolean completed;
         final Long createdAtEpochMillis;
 
         GoalSnapshot(String id, Skill skill, int targetLevel, long targetXp, boolean hasCustomXpTarget,
              int currentXp, int startingXp, int startingLevel, long remainingXp, double progress,
-             long xpPerHour, long goalCardSessionXp, long actionsLeft, boolean collapsed, boolean completed,
+             long xpPerHour, long goalCardSessionXp, long actionsLeft, boolean laps, boolean collapsed, boolean completed,
              Long createdAtEpochMillis)
         {
             this.id = id;
@@ -1009,6 +1013,7 @@ public class ActiveGoalsPanel extends PluginPanel
             this.xpPerHour = xpPerHour;
             this.goalCardSessionXp = goalCardSessionXp;
             this.actionsLeft = actionsLeft;
+            this.laps = laps;
             this.collapsed = collapsed;
             this.completed = completed;
             this.createdAtEpochMillis = createdAtEpochMillis;

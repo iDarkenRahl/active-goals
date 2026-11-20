@@ -74,6 +74,20 @@ class ActiveGoalsGoalCardExpansionTest
     }
 
     @Test
+    void agilityTimeoutDefaultsToFiveMinutesAndClampsInvalidValues() throws Exception
+    {
+        ConfigManager config = mock(ConfigManager.class);
+        ActiveGoalsPlugin plugin = pluginWithConfig(config);
+        assertEquals(300, plugin.getAgilityLapTimeoutSeconds());
+        when(config.getConfiguration(ActiveGoalsPlugin.CONFIG_GROUP, "agilityLapTimeoutSeconds"))
+            .thenReturn("45", "0", "999999", "invalid");
+        assertEquals(45, plugin.getAgilityLapTimeoutSeconds());
+        assertEquals(1, plugin.getAgilityLapTimeoutSeconds());
+        assertEquals(86400, plugin.getAgilityLapTimeoutSeconds());
+        assertEquals(300, plugin.getAgilityLapTimeoutSeconds());
+    }
+
+    @Test
     void settingAnXpTargetStartsTheNewGoalGracePeriod()
         throws Exception
     {

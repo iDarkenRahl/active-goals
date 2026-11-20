@@ -63,6 +63,9 @@ An increase in a skill's XP detected by the plugin while it is tracking the char
 **Actions Left**:
 An estimate of the number of actions needed to reach a goal, based on recent positive XP changes. Each change is a sample and does not necessarily represent one in-game action.
 
+**Laps Left**:
+An estimate of the whole Agility course laps equivalent to the XP remaining for a goal, using the normal XP for a lap and rounding up. A goal may be reached during the final lap.
+
 **Goal Card**:
 The dashboard representation of a goal and its progress statistics.
 
