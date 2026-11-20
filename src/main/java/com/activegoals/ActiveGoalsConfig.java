@@ -23,6 +23,10 @@ public interface ActiveGoalsConfig extends Config
         position = 1, closedByDefault = false)
     String ORDER_SECTION = "ordering";
 
+    @ConfigSection(name = "Agility lap timeout", description = "Time before an inactive course estimate expires.",
+        position = 2, closedByDefault = false)
+    String AGILITY_SECTION = "agility";
+
     @Range(min = 1, max = 86400)
     @ConfigItem(keyName = "goalCardExpansionSeconds", name = "Seconds", section = COLLAPSE_SECTION,
         description = "Seconds a goal stays expanded after activity.", position = 0)
@@ -32,4 +36,9 @@ public interface ActiveGoalsConfig extends Config
     @ConfigItem(keyName = "goalOrderingActivitySeconds", name = "Seconds", section = ORDER_SECTION,
         description = "Seconds without XP before the next gain moves that skill's goals to the top.", position = 0)
     default int goalOrderingActivitySeconds() { return 300; }
+
+    @Range(min = 1, max = 86400)
+    @ConfigItem(keyName = "agilityLapTimeoutSeconds", name = "Seconds", section = AGILITY_SECTION,
+        description = "Seconds without a completed lap before returning to Actions Left.", position = 0)
+    default int agilityLapTimeoutSeconds() { return 300; }
 }

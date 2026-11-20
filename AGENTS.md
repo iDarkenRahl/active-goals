@@ -24,6 +24,7 @@
 ## Multi-agent collaboration
 - The main Codex session is Lead Coordinator and owns the final integrated answer.
 - Standing user request: proactively delegate substantive development, comprehensive reviews, complex bug investigations, architectural analysis, and release-readiness assessments to appropriate named specialists when their independent analysis or implementation materially helps and delegation is permitted. Follow the specialist selection rules and concurrency limits in the delegation playbook and installed configuration; respect higher-priority instructions and the approval policy.
+- Before substantive work, identify the relevant named specialists and use the routing checkpoint in `docs/codex/DELEGATION-PLAYBOOK.md`. When a suitable named specialist is available, assign its matching delegated work to that role; do not default to a generic agent merely because the assignment is small or isolated. Report the roles actually used and explain any generic substitution or unavailable or prohibited delegation.
 - Specify task, scope, allowed files, prohibited actions, dependencies, deliverables, and acceptance criteria for every delegation.
 - Avoid simultaneous edits to the same files. Assign one implementation owner; reviewers are read-only.
 - Escalate conflicting findings or uncertainty rather than hiding them.

@@ -14,6 +14,13 @@ Assign one writer per file or isolated worktree. Parallel read-only inspections 
 ## Routing
 Architecture for feature design; RuneLite Specialist for client/API changes; UI Developer for Swing; Data Specialist for saved data; QA for reproducibility/tests; Code Reviewer for independent review; Release Manager for versioning/release readiness.
 
+### Routing checkpoint
+Before substantive work, the coordinator identifies the workstreams that benefit from delegation and matches each to the named specialist responsibilities above. Check which roles are available and whether delegation is permitted. Assign matching work to an available named specialist, including bounded implementation or investigation; a small file scope alone is not a reason to use a generic worker. Keep trivial work in the coordinator session and respect task dependencies and concurrency limits.
+
+Use a generic agent only when no available named specialist fits, or when the generic role is demonstrably better suited to the particular assignment. Record the reason and report it to the user. If delegation or a relevant role is unavailable or prohibited, state that limitation and perform the work that is authorized and feasible; never present another role as the missing specialist.
+
+In the final handoff, list each actual role used and its contribution. When a relevant specialist was not used because of an availability or delegation restriction, or a generic agent was substituted for a matching specialist, explain why. Do not count the coordinator as a spawned specialist.
+
 ## Disagreements
 Present evidence, alternatives, and impacts. Escalate major tradeoffs to the user. Never let agent consensus bypass approval.
 

@@ -32,6 +32,9 @@ The skill's XP when a goal is created, representing 0% progress toward that goal
 **Goal Starting Level**:
 The level derived from a goal's starting XP; it remains fixed as the character gains XP.
 
+**Current Skill Level**:
+The level derived from a character's current XP in a skill, including virtual levels above 99. Temporary boosts and drains do not change it.
+
 **Goal Percentage**:
 Progress from a goal's starting XP to its target XP, expressed from 0% to 100%.
 _Avoid_: Goal Progress in internal domain terminology; it is acceptable as a player-facing UI label.
@@ -62,6 +65,9 @@ An increase in a skill's XP detected by the plugin while it is tracking the char
 
 **Actions Left**:
 An estimate of the number of actions needed to reach a goal, based on recent positive XP changes. Each change is a sample and does not necessarily represent one in-game action.
+
+**Laps Left**:
+An estimate of the whole Agility course laps equivalent to the XP remaining for a goal, using the normal XP for a lap and rounding up. A goal may be reached during the final lap.
 
 **Goal Card**:
 The dashboard representation of a goal and its progress statistics.

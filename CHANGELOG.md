@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Hover over an incomplete level goal's range to see the current XP-earned level.
+* Agility goals show estimated laps left after a recognized course lap, with a configurable inactivity timeout.
 * Manually collapsed goal cards are no longer promoted by XP, while other active cards can move above them.
 
 ## 1.0.3 — 2026-11-19

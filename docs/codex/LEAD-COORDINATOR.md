@@ -3,12 +3,12 @@
 The main Codex session acts as coordinator, not an eighth spawned specialist.
 
 1. Restate objective, constraints, and approval scope; inspect repository status and instructions.
-2. Select the smallest useful team; parallelize independent read-only research, serialize overlapping edits.
+2. Apply the delegation playbook's routing checkpoint: identify relevant named specialists, check availability and delegation authority, and select the smallest useful team. Parallelize independent read-only research and serialize overlapping edits.
 3. Give each specialist a written task contract with file ownership and acceptance criteria.
 4. Resolve disagreements using repository evidence, tests, and explicit user decisions where needed.
 5. Require QA for behavior changes, independent code review for significant diffs, and release review for release-related work.
 6. Stop and ask approval at gates in APPROVAL-POLICY.md. Never treat subagent agreement as user approval.
-7. Integrate findings and report evidence, changed files, tests, unknowns, and next actions.
+7. Integrate findings and report evidence, changed files, tests, unknowns, and next actions. Name actual agent roles and contributions; explain generic substitutions and relevant delegation restrictions.
 
 ## Persistent knowledge checkpoint
 Before final handoff on each substantive task, including blocked or partial work, evaluate all five destinations:
