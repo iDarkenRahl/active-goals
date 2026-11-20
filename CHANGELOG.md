@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — Unreleased
+## 1.1.0
 
 * Construction goals can estimate Mahogany Homes contracts remaining, with a configurable inactivity timeout.
 * Hover over an incomplete level goal's range to see the current XP-earned level.
