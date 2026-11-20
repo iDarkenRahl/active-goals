@@ -1,6 +1,7 @@
 # Active Goals — Current State
 
 - Last verified: 2026-11-18, branch `main`, HEAD `67329a7`; untracked `.codex/`, `AGENTS.md`, `GLOSSARY.md` and `docs/` were already present before the dashboard work.
+- Release preparation (2026-11-20): published Plugin Hub baseline is `a2068aa107be1887691dfd1058ab8407104c7f05` (1.0.3). The user approved 1.1.0 as the next version; its version changes, Agility profile-readiness fix and release documentation are uncommitted on local `main` at `4743531`. With these local changes, `./gradlew.bat build --rerun-tasks` passed 107 tests using Java 17.0.21 and Gradle 9.8.0; client `latest.release` resolved to 1.13.7 on compile, test compile and test runtime classpaths. In-client validation, an exact committed-candidate build and Plugin Hub submission remain pending.
 - Local unreleased work: Construction goals can estimate Mahogany Homes contracts remaining using observed contracts by tier, with an inactivity timeout. In-client message detection, completion XP timing, and equipment changes remain unverified; unrelated XP may contaminate samples.
 - Local unreleased work: incomplete level goal cards show the current XP-derived level in a tooltip over the goal range, including in collapsed cards and deletion confirmation; in-client display remains unverified.
 - Local unreleased work: Agility goals can estimate whole laps after recognizing a course completion, returning to Actions Left after a configurable inactivity timeout. In-client course recognition and UI behavior remain unverified.

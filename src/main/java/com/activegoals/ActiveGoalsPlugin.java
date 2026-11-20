@@ -784,6 +784,7 @@ public class ActiveGoalsPlugin extends Plugin
 
     double agilityXpPerLap()
     {
+        if (!goalDataReady()) return -1;
         return agilityCourse.xpPerLap(client, System.nanoTime(), getAgilityLapTimeoutSeconds());
     }
 
