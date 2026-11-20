@@ -20,6 +20,14 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.ChatMessageType;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
+import net.runelite.api.ItemID;
+import net.runelite.client.util.Text;
 import javax.inject.Inject;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -54,6 +62,7 @@ public class ActiveGoalsPlugin extends Plugin
 
     private final Map<Skill, Integer> lastXp = new EnumMap<>(Skill.class);
     private final AgilityCourseTracker agilityCourse = new AgilityCourseTracker();
+    private final MahoganyHomesTracker mahoganyHomes = new MahoganyHomesTracker();
     private int xpBaselineTicks;
     private Long trackedAccountHash;
     private final Map<Skill, Long> firstGainNanos = new EnumMap<>(Skill.class);
@@ -359,6 +368,7 @@ public class ActiveGoalsPlugin extends Plugin
     protected synchronized void startUp()
     {
         agilityCourse.reset();
+        mahoganyHomes.reset();
         profileSession++;
         sessionStartNanos = 0;
         lastXp.clear();
@@ -386,6 +396,7 @@ public class ActiveGoalsPlugin extends Plugin
     protected synchronized void shutDown()
     {
         agilityCourse.reset();
+        mahoganyHomes.reset();
         profileSession++;
         pauseSession(System.nanoTime());
         pauseIndividualGoals();
@@ -482,7 +493,10 @@ public class ActiveGoalsPlugin extends Plugin
     {
         GameState state = event.getGameState();
         if (state == GameState.LOGGING_IN || state == GameState.HOPPING || state == GameState.LOGIN_SCREEN)
+        {
             agilityCourse.reset();
+            mahoganyHomes.reset();
+        }
         if (state != GameState.LOGGED_IN) pauseSession(System.nanoTime());
         else if (individualGoalsLoaded && Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey()))
             resumeSession(System.nanoTime());
@@ -519,6 +533,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (loadedRSProfileKey != null && !Objects.equals(key, loadedRSProfileKey))
         {
             agilityCourse.reset();
+            mahoganyHomes.reset();
             profileSession++;
             pauseSession(System.nanoTime());
             pauseIndividualGoals();
@@ -546,6 +561,9 @@ public class ActiveGoalsPlugin extends Plugin
         }
         if (xpBaselineTicks == 0)
         {
+            if (homesTrackingReady() && mahoganyHomes.onTick(client.getSkillExperience(Skill.CONSTRUCTION),
+                carpenterOutfitMask(client.getItemContainer(InventoryID.EQUIPMENT)), System.nanoTime()))
+                activeGoalsPanel.requestRefresh();
             resumeSession(System.nanoTime());
             expireGoalExpansions(System.nanoTime());
             boolean removed = false;
@@ -585,6 +603,7 @@ public class ActiveGoalsPlugin extends Plugin
         if (trackedAccountHash != null && trackedAccountHash != accountHash)
         {
             agilityCourse.reset();
+            mahoganyHomes.reset();
             pauseSession(System.nanoTime());
             pauseIndividualGoals();
             individualGoals.clearTrainingActivity();
@@ -766,6 +785,62 @@ public class ActiveGoalsPlugin extends Plugin
     double agilityXpPerLap()
     {
         return agilityCourse.xpPerLap(client, System.nanoTime(), getAgilityLapTimeoutSeconds());
+    }
+
+    private boolean homesTrackingReady()
+    {
+        return xpBaselineTicks == 0 && client.getGameState() == GameState.LOGGED_IN
+            && individualGoalsLoaded && loadedRSProfileKey != null
+            && Objects.equals(loadedRSProfileKey, configManager.getRSProfileKey());
+    }
+
+    @Subscribe
+    public synchronized void onChatMessage(ChatMessage event)
+    {
+        if (!homesTrackingReady() || event.getType() != ChatMessageType.GAMEMESSAGE
+            || event.getMessage() == null) return;
+        if (mahoganyHomes.observeMessage(Text.removeTags(event.getMessage()),
+            client.getSkillExperience(Skill.CONSTRUCTION),
+            carpenterOutfitMask(client.getItemContainer(InventoryID.EQUIPMENT)), System.nanoTime()))
+            activeGoalsPanel.requestRefresh();
+    }
+
+    @Subscribe
+    public synchronized void onItemContainerChanged(ItemContainerChanged event)
+    {
+        if (!homesTrackingReady() || event.getContainerId() != InventoryID.EQUIPMENT.getId()) return;
+        if (mahoganyHomes.observeOutfit(carpenterOutfitMask(event.getItemContainer())))
+            activeGoalsPanel.requestRefresh();
+    }
+
+    private static int carpenterOutfitMask(ItemContainer container)
+    {
+        if (container == null || container.getItems() == null) return -1;
+        int mask = 0;
+        for (Item item : container.getItems())
+        {
+            if (item == null) continue;
+            switch (item.getId())
+            {
+                case ItemID.CARPENTERS_HELMET: mask |= 1; break;
+                case ItemID.CARPENTERS_SHIRT: mask |= 2; break;
+                case ItemID.CARPENTERS_TROUSERS: mask |= 4; break;
+                case ItemID.CARPENTERS_BOOTS: mask |= 8; break;
+                default: break;
+            }
+        }
+        return mask;
+    }
+
+    long homesLeft(long targetXp)
+    {
+        if (!homesTrackingReady()) return -1;
+        return mahoganyHomes.estimateHomes(targetXp, System.nanoTime(), getHomesTimeoutSeconds());
+    }
+
+    int getHomesTimeoutSeconds()
+    {
+        return Math.max(1, Math.min(86_400, getIntSetting("homesTimeoutSeconds", 300)));
     }
 
     int getIntSetting(String key, int fallback)

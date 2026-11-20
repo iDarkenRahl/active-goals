@@ -69,6 +69,9 @@ An estimate of the number of actions needed to reach a goal, based on recent pos
 **Laps Left**:
 An estimate of the whole Agility course laps equivalent to the XP remaining for a goal, using the normal XP for a lap and rounding up. A goal may be reached during the final lap.
 
+**Homes Left**:
+An estimate of the whole Mahogany Homes contracts equivalent to a Construction goal's remaining XP, based on recently observed complete contracts of the current tier and rounded up. A goal may be reached during the final contract.
+
 **Goal Card**:
 The dashboard representation of a goal and its progress statistics.
 
