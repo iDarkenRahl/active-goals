@@ -2,10 +2,10 @@ package com.activegoals;
 
 import java.awt.image.BufferedImage;
 import java.awt.Graphics2D;
-import java.awt.Color;
 import com.google.inject.Provides;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.ImageUtil;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.RuneScapeProfileChanged;
@@ -1143,18 +1143,12 @@ public class ActiveGoalsPlugin extends Plugin
 
     private static BufferedImage createToolbarIcon()
     {
+        BufferedImage source = ImageUtil.loadImageResource(ActiveGoalsPlugin.class, "icon.png");
         BufferedImage image = new BufferedImage(24, 24, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         try
         {
-            g.setColor(new Color(217, 177, 89));
-            g.fillRoundRect(3, 3, 18, 18, 5, 5);
-            g.setColor(new Color(41, 32, 23));
-            g.fillRoundRect(5, 5, 14, 14, 3, 3);
-            g.setColor(new Color(236, 207, 134));
-            g.drawLine(8, 16, 16, 8);
-            g.drawLine(7, 9, 15, 17);
-            g.fillRect(13, 6, 5, 3);
+            g.drawImage(source, 3, 2, 21, 23, 5, 14, 43, 59, null);
         }
         finally { g.dispose(); }
         return image;
