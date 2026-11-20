@@ -50,6 +50,16 @@ class AgilityIntegrationTest
     }
 
     @Test
+    void changedProfileKeyHidesOldLapBeforeProfileEvent() throws Exception
+    {
+        Fixture f = new Fixture();
+        f.lap();
+        assertEquals(120, f.plugin.agilityXpPerLap());
+        when(f.config.getRSProfileKey()).thenReturn("other");
+        assertEquals(-1, f.plugin.agilityXpPerLap());
+    }
+
+    @Test
     void dashboardSwitchesBetweenRoundedLapsAndActionSamples() throws Exception
     {
         ActiveGoalsPlugin plugin = mock(ActiveGoalsPlugin.class);

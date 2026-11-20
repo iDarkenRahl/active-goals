@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — Unreleased
 
 * Construction goals can estimate Mahogany Homes contracts remaining, with a configurable inactivity timeout.
 * Hover over an incomplete level goal's range to see the current XP-earned level.
 * Agility goals show estimated laps left after a recognized course lap, with a configurable inactivity timeout.
-* Manually collapsed goal cards are no longer promoted by XP, while other active cards can move above them.
+* Hide Agility lap estimates while the active profile is changing.
+* Active goal cards can move above manually collapsed cards when training activity changes their order.
+* Refresh the Active Goals sidebar and Plugin Hub icons.
 
 ## 1.0.3 — 2026-11-19
 
