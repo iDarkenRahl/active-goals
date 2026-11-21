@@ -1,9 +1,0 @@
-.gradle/
-.idea/
-build/
-out/
-*.iml
-*.ipr
-*.iws
-hs_err_pid*
-replay_pid*
